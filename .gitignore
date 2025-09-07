@@ -4,10 +4,9 @@
 # ignore all __pycache__ directories
 __pycache__/
 # ignore environment directories
-env/
 venv/
-.venv/
 # ignore IDE specific files
+.env
 .vscode/
 .idea/
 # ignore system files

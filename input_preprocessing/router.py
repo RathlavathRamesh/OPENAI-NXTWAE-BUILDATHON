@@ -23,8 +23,10 @@ def preprocess_request(
     for (filename, file_bytes, mime) in uploads:
         print(f"Processing upload: {filename} ({mime}), size={len(file_bytes)} bytes")
         if mime.startswith("image/"):
+            print("this is the image data")
             images_meta.append(analyze_image(file_bytes, filename))
         elif mime.startswith("audio/") or mime.startswith("video/"):
+            print("this is the audio or video data")
             transcripts.append(transcribe_av(file_bytes, filename, mime))
 
     incident.images_meta = images_meta
