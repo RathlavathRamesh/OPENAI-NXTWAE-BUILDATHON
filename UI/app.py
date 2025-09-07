@@ -1,15 +1,27 @@
 import os
 import sys
+from dotenv import load_dotenv
+
+try:
+    load_dotenv()  # looks for .env at project root
+except Exception:
+    pass  # if python-dotenv not installed, env must be exported in shell
+
 
 ROOT = os.path.dirname(os.path.abspath(__file__))          # .../Buildathon/UI
 ROOT = os.path.dirname(ROOT)                               # .../Buildathon (project root)
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
-    
-from ai_core.multimodal_inference_gateway import multimodal_infer_openai
-
 import streamlit as st
 from input_preprocessing.router import preprocess_request
+# from ai_core.multimodal_inference_gateway import multimodal_infer_openai 
+from ai_core.groq_multimodal_inference_gateway import multimodal_infer_groq
+
+
+if os.getenv("GROQ_API_KEY"):
+    print("GROQ_API_KEY detected")
+else:
+    print("GROQ_API_KEY not found. Put it in .env at project root or export in shell.")
 
 
 st.set_page_config(page_title="Disaster Intake → Multimodal Agent", layout="centered")
@@ -43,7 +55,9 @@ if st.button("Process"):
                 break 
 
     st.subheader("Multimodal Agent Inference (What happened?)")
-    result = multimodal_infer_openai(incident)
+    # result = multimodal_infer_openai(incident)
+    breakpoint()
+    result=multimodal_infer_groq(incident)
     print("--- Multimodal Inference Result ---")
     print(result)
     st.json(result)
