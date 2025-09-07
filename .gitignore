@@ -11,3 +11,4 @@ venv/
 .idea/
 # ignore system files
 .DS_Store
+.early.coverage
