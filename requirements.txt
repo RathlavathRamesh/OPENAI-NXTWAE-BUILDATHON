@@ -1,0 +1,7 @@
+streamlit==1.36.0 # stable, supports multi-file upload widgets
+pydantic==2.8.2 # data validation/models for NormalizedIncident
+pillow==10.4.0 # image loading + EXIF via PIL; ≥9.1 avoids old API issues
+numpy==1.26.4 # Pillow dependency helper on many platform
+geopy==2.3.0 # lat/lon to address resolution
+langdetect
+openai

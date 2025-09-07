@@ -1,0 +1,14 @@
+# this is a git ignore file
+# ignore all .pyc files
+*.pyc
+# ignore all __pycache__ directories
+__pycache__/
+# ignore environment directories
+env/
+venv/
+.venv/
+# ignore IDE specific files
+.vscode/
+.idea/
+# ignore system files
+.DS_Store
