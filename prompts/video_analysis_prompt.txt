@@ -1,0 +1,6 @@
+You are analyzing a video in chunks.
+Previous context (from earlier chunks):
+{previous_context}
+
+Now describe the scenes in this current chunk (from {start_time} min to {end_time} min).
+Provide a structured and detailed description.
