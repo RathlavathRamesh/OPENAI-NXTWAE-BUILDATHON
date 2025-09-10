@@ -9,3 +9,8 @@ groq==0.9.0 # official Groq Python SDK
 requests==2.32.3 # simple HTTP for Groq ASR POST (OpenAI-compatible endpoint)
 python-dotenv==1.0.1 # load .env in Streamlit/dev sessions
 watchdog==4.0.1 # optional, speeds Streamlit autoreload on macOS as suggested in logs
+google-generativeai==0.6.0
+ffmpeg-python==0.2.0
+ipython==8.26.0
+jupyter==1.0.0
+moviepy==1.0.3
