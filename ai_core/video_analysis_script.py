@@ -6,7 +6,7 @@ import ffmpeg  # Correctly importing the ffmpeg-python library
 from moviepy.editor import VideoFileClip
 import os
 # Configure the Google API Key
-GOOGLE_API_KEY = "AIzaSyCo7gvEb-yosc1Onhhu6PDPAmsfdMnERCg"
+GOOGLE_API_KEY = ""
 genai.configure(api_key=GOOGLE_API_KEY)
  
 # Function to split the video into smaller chunks
