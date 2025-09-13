@@ -13,8 +13,9 @@ class ImageMeta(BaseModel):
     width: int
     height: int
     format: str
-    exif: Dict[str, Any] = Field(default_factory=dict)
-
+    exif: dict
+    bytes_b64: str      # ADD THIS LINE
+    mime_type: str  
 class Transcript(BaseModel):
     text: str
     language: Optional[str] = None

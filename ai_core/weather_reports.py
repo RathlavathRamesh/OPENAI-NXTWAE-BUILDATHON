@@ -1,9 +1,9 @@
 import requests
-import json
 from typing import Dict, Any
-from environment import Config
+import os
 
-API_KEY = Config.WEATHER_API_KEY # Replace with your OpenWeatherMap API key
+
+API_KEY = os.getenv('WEATHER_API_KEY') # Replace with your OpenWeatherMap API key
 
 def get_weather_by_coords(lat : float, lon : float) -> Dict[str, Any]:
     """
