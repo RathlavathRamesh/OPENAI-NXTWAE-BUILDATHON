@@ -1,0 +1,128 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Emergency Tracker Design System - Emergency Response Theme */
+
+@layer base {
+  :root {
+    /* Core Emergency Colors */
+    --background: 218 23% 6%;
+    --foreground: 210 40% 98%;
+
+    --card: 224 24% 8%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 224 24% 8%;
+    --popover-foreground: 210 40% 98%;
+
+    /* Emergency Red - Critical/Urgent */
+    --primary: 0 84% 60%;
+    --primary-foreground: 210 40% 98%;
+
+    /* Rescue Blue - Medical/Support */
+    --secondary: 217 91% 60%;
+    --secondary-foreground: 210 40% 98%;
+
+    /* Warning Amber */
+    --warning: 38 92% 50%;
+    --warning-foreground: 20 14.3% 4.1%;
+
+    /* Safe Green */
+    --success: 142 76% 36%;
+    --success-foreground: 210 40% 98%;
+
+    /* Neutral Muted */
+    --muted: 215 27.9% 16.9%;
+    --muted-foreground: 217.9 10.6% 64.9%;
+
+    --accent: 215 27.9% 16.9%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 215 27.9% 16.9%;
+    --input: 215 27.9% 16.9%;
+    --ring: 0 84% 60%;
+
+    --radius: 0.75rem;
+
+    /* Emergency Gradients */
+    --gradient-emergency: linear-gradient(135deg, hsl(0 84% 60%) 0%, hsl(0 84% 45%) 100%);
+    --gradient-rescue: linear-gradient(135deg, hsl(217 91% 60%) 0%, hsl(217 91% 45%) 100%);
+    --gradient-warning: linear-gradient(135deg, hsl(38 92% 50%) 0%, hsl(38 92% 40%) 100%);
+    --gradient-success: linear-gradient(135deg, hsl(142 76% 36%) 0%, hsl(142 76% 26%) 100%);
+    --gradient-hero: linear-gradient(135deg, hsl(224 24% 8%) 0%, hsl(215 27.9% 16.9%) 100%);
+
+    /* Emergency Shadows */
+    --shadow-emergency: 0 10px 30px -10px hsl(0 84% 60% / 0.3);
+    --shadow-rescue: 0 10px 30px -10px hsl(217 91% 60% / 0.3);
+    --shadow-glow: 0 0 40px hsl(0 84% 60% / 0.2);
+
+    /* Animations */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --pulse-emergency: pulse-emergency 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+
+    /* Sidebar Colors */
+    --sidebar-background: 215 27.9% 16.9%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 0 84% 60%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 224 24% 8%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 215 27.9% 16.9%;
+    --sidebar-ring: 0 84% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-bold tracking-tight;
+  }
+
+  .emergency-pulse {
+    animation: pulse-emergency 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  @keyframes pulse-emergency {
+    0%, 100% {
+      opacity: 1;
+      box-shadow: 0 0 0 0 hsl(0 84% 60% / 0.7);
+    }
+    50% {
+      opacity: 0.8;
+      box-shadow: 0 0 0 10px hsl(0 84% 60% / 0);
+    }
+  }
+}
+
+@layer components {
+  .gradient-emergency {
+    background: var(--gradient-emergency);
+  }
+  
+  .gradient-rescue {
+    background: var(--gradient-rescue);
+  }
+  
+  .gradient-warning {
+    background: var(--gradient-warning);
+  }
+  
+  .gradient-success {
+    background: var(--gradient-success);
+  }
+  
+  .gradient-hero {
+    background: var(--gradient-hero);
+  }
+}
