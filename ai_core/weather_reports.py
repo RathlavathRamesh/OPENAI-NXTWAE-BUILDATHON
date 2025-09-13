@@ -1,5 +1,6 @@
 import requests
 import json
+from typing import Dict, Any
 from configparser import ConfigParser
 
 config = ConfigParser()
@@ -7,7 +8,7 @@ config.read('local_config.ini')
 
 API_KEY = config.get('KEYS','WEATHER_API_KEY')  # Replace with your OpenWeatherMap API key
 
-def get_weather_by_coords(lat, lon):
+def get_weather_by_coords(lat : float, lon : float) -> Dict[str, Any]:
     """
     Fetches the current weather report for given latitude and longitude using OpenWeatherMap API.
 
@@ -36,5 +37,3 @@ def get_weather_by_coords(lat, lon):
         return report
     else:
         return {"error": response.status_code, "message": response.text}
-        
-
