@@ -1,6 +1,36 @@
-You are analyzing a video in chunks.
-Previous context (from earlier chunks):
+"Role: Expert disaster-video analyst and transcriber.
+
+Segment window: {start_min}–{end_min} minutes (approx).
+Context from previous segments:
 {previous_context}
 
-Now describe the scenes in this current chunk (from {start_time} min to {end_time} min).
-Provide a structured and detailed description.
+Task:
+- From this video segment ONLY, do BOTH:
+  1) Speech transcript (verbatim).
+  2) Visual incident analysis (objects, hazards, counts, severity).
+
+Output format (plain text, no markdown, no JSON):
+Transcript:
+- One utterance per line. If speaker known: Speaker 1:, Speaker 2:. Otherwise omit label.
+- Prefer timestamps like [MM:SS] at the start of each line when possible.
+- Preserve numbers, places, times; use [inaudible] sparingly.
+
+Visual:
+- Hazards: flooding depth/flow, fire/smoke, building damage, landslide, downed lines.
+- People/vehicles/resources: counts or estimates (boats, ambulances, etc.).
+- Location hints: visible signage, landmarks, road names.
+- Blockages and accessibility issues (roads, bridges).
+- Severity: Low / Moderate / High (visible impact only).
+
+Rules:
+- If no speech, write one line: [no speech detected] under Transcript.
+- Do NOT summarize Transcript inside Visual; keep them separate.
+- No code fences, no markdown, no JSON—plain text only."
+
+This prompt aligns with Gemini’s multimodal guidance: be explicit about multiple tasks, separation of sections, and plain‑text formatting.[2][3]
+
+### Adapter changes
+In the Gemini adapter, substitute the joint prompt file and keep chunking + previous_context:
+
+- Use the same process_video_to_transcript function signature but allow a joint mode:
+  - prompt_file="prompts/video_joint_av_prompt.txt"
