@@ -1,127 +1,250 @@
-import google.generativeai as genai
-from IPython.display import Markdown
+import os
 import time
-import os
-import ffmpeg  # Correctly importing the ffmpeg-python library
+from typing import List, Optional, Tuple
+
+import ffmpeg  # ffmpeg-python
 from moviepy.editor import VideoFileClip
-import os
-# Configure the Google API Key
-GOOGLE_API_KEY = ""
-genai.configure(api_key=GOOGLE_API_KEY)
- 
-# Function to split the video into smaller chunks
+from google import genai
+from dotenv import load_dotenv
 
-def load_prompt_template(file_path=os.path.join(os.getcwd(),'prompts/video_analysis_prompt.txt')):
-    with open(file_path, "r", encoding="utf-8") as f:
-        return f.read()
-    
-def split_video_moviepy(input_video, segment_time=600):
-    output_dir = "video_chunks"
-    os.makedirs(output_dir, exist_ok=True)
+load_dotenv()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_VIDEO_MODEL = os.getenv("GEMINI_VIDEO_MODEL", "gemini-2.5-flash")
 
-    video = VideoFileClip(input_video)
-    duration = int(video.duration)  # total length in seconds
-    chunks = []
+# Fallback template (use a joint A/V prompt file in production)
+FALLBACK_TEMPLATE = (
+    "Role: Expert disaster-video analyst and transcriber.\n"
+    "Segment window: {start_min}–{end_min} minutes (approx).\n"
+    "Context from previous segments:\n"
+    "{previous_context}\n\n"
+    "Task:\n"
+    "- From this video segment ONLY, do BOTH:\n"
+    "  1) Speech transcript (verbatim).\n"
+    "  2) Visual incident analysis (objects, hazards, counts, severity).\n\n"
+    "Output format (plain text, no markdown, no JSON):\n"
+    "Transcript:\n"
+    "- One utterance per line. If speaker known: Speaker 1:, Speaker 2:. Otherwise omit label.\n"
+    "- Prefer timestamps like [MM:SS] at the start of each line when possible.\n"
+    "- Preserve numbers, places, times; use [inaudible] sparingly.\n\n"
+    "Visual:\n"
+    "- Hazards: flooding depth/flow, fire/smoke, building damage, landslide, downed lines.\n"
+    "- People/vehicles/resources: counts or estimates (boats, ambulances, etc.).\n"
+    "- Location hints: visible signage, landmarks, road names.\n"
+    "- Blockages and accessibility issues (roads, bridges).\n"
+    "- Severity: Low / Moderate / High (visible impact only).\n\n"
+    "Rules:\n"
+    "- If no speech, write one line: [no speech detected] under Transcript.\n"
+    "- Do NOT summarize Transcript inside Visual; keep them separate.\n"
+    "- No code fences, no markdown, no JSON—plain text only.\n"
+)
 
-    for i, start in enumerate(range(0, duration, segment_time)):
-        end = min(start + segment_time, duration)
-        chunk_path = os.path.join(output_dir, f"chunk{i:03d}.mp4")
-        video.subclip(start, end).write_videofile(chunk_path, codec="libx264")
-        chunks.append(chunk_path)
+_client: Optional[genai.Client] = None
 
-    return sorted(chunks)
+def _get_client() -> genai.Client:
+    global _client
+    if _client is None:
+        if not GEMINI_API_KEY:
+            raise RuntimeError("GEMINI_API_KEY not set")
+        _client = genai.Client(api_key=GEMINI_API_KEY)
+    return _client
 
+def _duration_seconds(video_path: str) -> int:
+    clip = VideoFileClip(video_path)
+    try:
+        return int(clip.duration or 0)
+    finally:
+        clip.close()
 
-def split_video(input_video, segment_time=600):
-    output_dir = "video_chunks"
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Splitting video into chunks using ffmpeg
+def _split_moviepy(input_video: str, out_dir: str, segment_seconds: int) -> List[str]:
+    os.makedirs(out_dir, exist_ok=True)
+    clip = VideoFileClip(input_video)
+    total = int(clip.duration or 0)
+    parts: List[str] = []
+    try:
+        for i, start in enumerate(range(0, total, segment_seconds)):
+            end = min(start + segment_seconds, total)
+            out_path = os.path.join(out_dir, f"chunk{i:03d}.mp4")
+            clip.subclip(start, end).write_videofile(out_path, codec="libx264", audio=True, logger=None)
+            parts.append(out_path)
+    finally:
+        clip.close()
+    return parts
+
+def _split_ffmpeg(input_video: str, out_dir: str, segment_seconds: int) -> List[str]:
+    os.makedirs(out_dir, exist_ok=True)
     (
         ffmpeg
         .input(input_video)
-        .output(f'{output_dir}/chunk%03d.mp4', f='segment', segment_time=segment_time)
-        .run()
+        .output(os.path.join(out_dir, "chunk%03d.mp4"),
+                f="segment",
+                segment_time=segment_seconds)
+        .run(quiet=True, overwrite_output=True)
     )
-    
-    return sorted([f'{output_dir}/{f}' for f in os.listdir(output_dir)])
- 
-# Function to upload video file to Gemini
-def upload_video_chunk(chunk_file):
-    print(f"Uploading file: {chunk_file}")
-    video_file = genai.upload_file(path=chunk_file)
-    print(f"Completed upload: {video_file.uri}")
-    return video_file
-
- 
-# Function to process each chunk with Gemini AI
-def process_chunk_with_gemini(video_file, start_time, end_time, previous_context="", prompt_template=""):
-    # Check if file is ready
-    while video_file.state.name == "PROCESSING":
-        print('.', end='')
-        time.sleep(10)
-        video_file = genai.get_file(video_file.name)
-    
-    if video_file.state.name == "FAILED":
-        raise ValueError(f"File processing failed: {video_file.state.name}")
-    
-    # Create the prompt for analysis and transcription
-    prompt = prompt_template.format(
-        previous_context=previous_context,
-        start_time=start_time,
-        end_time=end_time
+    return sorted(
+        os.path.join(out_dir, f)
+        for f in os.listdir(out_dir)
+        if f.startswith("chunk") and f.endswith(".mp4")
     )
-    print(f"Prompt for Gemini video analysis: {prompt}")
 
-    # Choose the Gemini model
-    model = genai.GenerativeModel(model_name="gemini-2.5-flash")
-    
-    # Make the LLM request
-    print("Making LLM inference request...")
-    response = model.generate_content([video_file, prompt], request_options={"timeout": 600})
-    
-    # Print the response, rendering any Markdown
-    print(Markdown(response.text))
-    
-    return response.text
- 
-# Main Function to process the entire video
-def process_entire_video(video_file_name):
-    # Split video into chunks
-    video_chunks = split_video_moviepy(video_file_name, segment_time=600)  # 10-minute segments
-    prompt_template = load_prompt_template()
-    all_reports = []
-    
-    # Process each chunk
-    for i, chunk in enumerate(video_chunks):
-        start_time = i * 10  # Approx start time in minutes
-        end_time = start_time + 10  # Approx end time in minutes
-        
-        # Upload video chunk
-        video_file = upload_video_chunk(chunk)
-        previous_context = "\n".join(all_reports) if all_reports else "No previous context, this is the first chunk."
-        
-        # Process video chunk with Gemini
-        report = process_chunk_with_gemini(video_file, start_time, end_time, previous_context, prompt_template)
-        all_reports.append(report)
-    
-    # Combine reports for the final output
-    final_report = "\n\n".join(all_reports)
+def _load_template(prompt_file: Optional[str]) -> str:
+    if prompt_file and os.path.isfile(prompt_file):
+        with open(prompt_file, "r", encoding="utf-8") as f:
+            return f.read()
+    return FALLBACK_TEMPLATE
 
-    os.makedirs("video_analysis_result", exist_ok=True)
-    base_name = os.path.splitext(os.path.basename(video_file_name))[0]
-    output_path = os.path.join("video_analysis_result", f"{base_name}.txt")
-    
-    # Save the final report to a file
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(final_report)
+def _wait_until_active(client, file_obj, timeout_sec: int = 300, poll_sec: float = 2.0):
+    import time
+    name = getattr(file_obj, "name", None)
+    if not name:
+        return file_obj
+    start = time.time()
 
-    print(f"Final report saved as '{output_path}'")
+    def _state(v):
+        if hasattr(v, "name"):
+            return v.name
+        return str(v or "").upper()
 
-# Call the main function to process the video
+    state = getattr(file_obj, "state", None)
+    while time.time() - start < timeout_sec:
+        st = _state(state)
+        if st == "ACTIVE":
+            return file_obj
+        if st == "FAILED":
+            raise RuntimeError("File processing failed: FAILED")
+        time.sleep(poll_sec)
+        # FIX: use keyword argument for the file identifier
+        file_obj = client.files.get(name=name)
+        state = getattr(file_obj, "state", None)
+    raise TimeoutError("File did not become ACTIVE in time")
 
+def _upload_and_prepare_file(client: genai.Client, path: str):
+    f = client.files.upload(file=path)
+    f = _wait_until_active(client, f, timeout_sec=300, poll_sec=2.0)
+    return f
 
-video_file_path = os.path.join(os.getcwd(),'ai_core/sample_video.mp4')
-print("Looking for file at:", video_file_path)
-print("Exists?", os.path.exists(video_file_path))
-process_entire_video(video_file_path)
+def _generate_for_chunk(
+    client: genai.Client,
+    uploaded_file: object,
+    final_prompt: str,
+) -> str:
+    resp = client.models.generate_content(
+        model=GEMINI_VIDEO_MODEL,
+        contents=[uploaded_file, final_prompt],
+    )
+    return (getattr(resp, "text", "") or "").strip()
+
+def _postprocess_combined(text: str) -> str:
+    """Light cleanup: collapse repetitive ambient-only lines, trim blanks."""
+    lines = [ln.strip() for ln in text.splitlines()]
+    lines = [ln for ln in lines if ln]  # remove empty
+    pruned: List[str] = []
+    ambient_run = 0
+    for ln in lines:
+        if ln.startswith("[") and ln.endswith("]"):
+            ambient_run += 1
+            # keep at most 1 ambient line in a run
+            if ambient_run == 1:
+                pruned.append(ln)
+            continue
+        ambient_run = 0
+        pruned.append(ln)
+    if pruned and all(l.startswith("[") and l.endswith("]") for l in pruned):
+        pruned = pruned[:3]  # cap if entirely ambient
+    return "\n".join(pruned).strip()
+
+def process_video_to_transcript(
+    input_video_path: str,
+    processed_dir: str,
+    segment_seconds: int = 600,
+    use_ffmpeg_split: bool = True,
+    prompt_file: Optional[str] = None,
+    previous_context_window: int = 3,  # last N chunk outputs
+) -> str:
+    """
+    - Reads base prompt template from prompt_file (placeholders {previous_context}, {start_min}, {end_min}).
+    - Splits video if large, keeps rolling previous_context, and generates per-chunk joint A/V outputs.
+    - Saves per-chunk prompt and transcript files and a final combined transcript.
+    - Returns combined transcript string.
+    """
+    if not os.path.isfile(input_video_path):
+        raise FileNotFoundError(f"Video not found: {input_video_path}")
+
+    os.makedirs(processed_dir, exist_ok=True)
+    client = _get_client()
+
+    base_name, _ext = os.path.splitext(os.path.basename(input_video_path))
+    combined_out = os.path.join(processed_dir, f"{base_name}.transcript.txt")
+    chunks_dir = os.path.join(processed_dir, f"{base_name}_chunks")
+    os.makedirs(chunks_dir, exist_ok=True)
+
+    # Decide chunking
+    try:
+        size_mb = os.path.getsize(input_video_path) / (1024 * 1024)
+    except Exception:
+        size_mb = 0.0
+    try:
+        total_sec = _duration_seconds(input_video_path)
+    except Exception:
+        total_sec = 0
+
+    do_chunk = (total_sec and total_sec > segment_seconds) or (size_mb and size_mb > 20)
+
+    if do_chunk:
+        splitter = _split_ffmpeg if use_ffmpeg_split else _split_moviepy
+        chunk_paths = splitter(input_video_path, chunks_dir, segment_seconds)
+    else:
+        # uniform processing via a single chunk copy
+        single = os.path.join(chunks_dir, "chunk000.mp4")
+        if input_video_path != single:
+            try:
+                import shutil
+                shutil.copy2(input_video_path, single)
+            except Exception:
+                with open(input_video_path, "rb") as src, open(single, "wb") as dst:
+                    dst.write(src.read())
+        chunk_paths = [single]
+        total_sec = total_sec or 0
+
+    template = _load_template(prompt_file)
+    combined_parts: List[str] = []
+    previous_context: str = ""
+
+    for idx, path in enumerate(chunk_paths):
+        start_sec = idx * segment_seconds
+        end_sec = min((idx + 1) * segment_seconds, total_sec) if total_sec else (idx + 1) * segment_seconds
+        start_min = start_sec // 60
+        end_min = max(start_min + 1, end_sec // 60)
+
+        final_prompt = template.format(
+            previous_context=previous_context if previous_context else "None",
+            start_min=start_min,
+            end_min=end_min,
+        )
+
+        # Save the exact prompt (audit)
+        with open(os.path.join(chunks_dir, f"chunk{idx:03d}.prompt.txt"), "w", encoding="utf-8") as pf:
+            pf.write(final_prompt)
+
+        # Upload + wait for ACTIVE
+        uploaded = _upload_and_prepare_file(client, path)
+
+        # Generate content
+        chunk_text = _generate_for_chunk(client, uploaded, final_prompt)
+
+        # Save per-chunk output
+        with open(os.path.join(chunks_dir, f"chunk{idx:03d}.txt"), "w", encoding="utf-8") as tf:
+            tf.write(chunk_text)
+
+        combined_parts.append(chunk_text)
+        if previous_context_window > 0:
+            previous_context = "\n\n".join(combined_parts[-previous_context_window:])
+        else:
+            previous_context = ""
+
+    combined = "\n\n".join(combined_parts).strip()
+    combined = _postprocess_combined(combined)
+
+    with open(combined_out, "w", encoding="utf-8") as f:
+        f.write(combined)
+
+    return combined

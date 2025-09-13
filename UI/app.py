@@ -1,22 +1,21 @@
 import os
 import sys
 from dotenv import load_dotenv
-
 try:
     load_dotenv()  # looks for .env at project root
 except Exception:
     pass  # if python-dotenv not installed, env must be exported in shell
+from input_preprocessing.router import preprocess_request
 
+from ai_core.multimodel_inference_gateway import multimodal_infer_gemini
+from ai_core.weather_reports import get_weather_by_coords
+from ai_core.incident_judge import judge_incident_with_gemini
 
 ROOT = os.path.dirname(os.path.abspath(__file__))          # .../Buildathon/UI
 ROOT = os.path.dirname(ROOT)                               # .../Buildathon (project root)
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 import streamlit as st
-from input_preprocessing.router import preprocess_request
-# from ai_core.multimodal_inference_gateway import multimodal_infer_openai 
-from ai_core.groq_multimodal_inference_gateway import multimodal_infer_groq
-
 
 if os.getenv("GROQ_API_KEY"):
     print("GROQ_API_KEY detected")
@@ -53,11 +52,21 @@ if st.button("Process"):
             if (f.type or "").startswith("image/"):
                 st.image(f)
                 break 
-
     st.subheader("Multimodal Agent Inference (What happened?)")
     # result = multimodal_infer_openai(incident)
-    breakpoint()
-    result=multimodal_infer_groq(incident)
-    print("--- Multimodal Inference Result ---")
-    print(result)
-    st.json(result)
+    incident_request = multimodal_infer_gemini(incident)
+    # after: result = multimodal_infer_gemini(incident)
+    lat,lan=3.0878,80.2785
+    realworld_context = get_weather_by_coords(lat,lan)
+    
+    judge = judge_incident_with_gemini(incident_request, realworld_context)
+    if not judge.get("real_incident", False):
+        priority = 0
+    else:
+        sev = (judge.get("final_severity") or incident_request.get("severity","Unknown")).lower()
+        base = 10 if sev == "critical" else 8 if sev == "high" else 5 if sev in ["moderate","medium"] else 3
+        bonus = 2 if judge.get("verdict_score_0_10",0) >= 8 else 1 if judge.get("verdict_score_0_10",0) >= 5 else 0
+        priority = min(10, base + bonus)
+
+    st.json({"judge": judge, "priority_score_0_10": priority})
+    print("all the process completed successfully",judge)
