@@ -20,7 +20,7 @@ from utils.db_operations import update_incident_summary, create_incident_and_get
 from utils.send_email import send_email_notification
 
 from rag_system.dms_rag_pipeline import RAGSystem, IncidentPayload, RAGResponse
-
+from utils.db_operations import get_incident_summary
 app = FastAPI(title="Disaster Smart API", version="1.0.0")
 
 # CORS for frontend
@@ -453,6 +453,16 @@ async def get_modified_sop(incident: IncidentPayload):
     """
     print(f"Received request for incident_id: {incident.incident_id}")
     rag_system = RAGSystem()
+
+    incident_output = incident.incident_output
+    if not incident_output:
+        incident_output = get_incident_summary(int(incident.incident_id))
+        if not incident_output:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No incident_summary found for incident_id={incident.incident_id}",
+            )
+        incident.incident_output = incident_output
     # 1. Retrieval
     # Use the detailed explanation for a richer search query
     query = incident.incident_output.get("explanation", "")

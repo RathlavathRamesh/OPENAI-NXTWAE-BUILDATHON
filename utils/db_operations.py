@@ -54,7 +54,25 @@ def update_incident_summary(incident_id: int, summary_dict: dict) -> None:
         conn.close()
         
         
-        
+def get_incident_summary(incident_id: int) -> dict | None:
+    """
+    Fetch the incident_summary JSON for the given incident_id.
+    Returns a dict if found, otherwise None.
+    """
+    conn = connect_to_postgres()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT incident_summary
+                FROM incident
+                WHERE incident_id = %s
+            """, (incident_id,))
+            row = cur.fetchone()
+            if row and row[0]:
+                return row[0] if isinstance(row[0], dict) else json.loads(row[0])
+            return None
+    finally:
+        conn.close()
 
 
 
