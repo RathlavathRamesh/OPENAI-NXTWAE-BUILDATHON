@@ -1,6 +1,7 @@
 import os
 from typing import List, Optional, Tuple
 import psycopg2, json, uuid
+
 PG_DSN = os.getenv("PG_DSN")  # e.g., postgres://user:pass@host:5432/db
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
@@ -8,14 +9,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import json
 from utils.db_connect import connect_to_postgres
+
 # Import your existing modules (absolute package imports)
 from input_preprocessing.router import preprocess_request
 from ai_core.multimodel_inference_gateway import multimodal_infer_gemini
 from ai_core.weather_reports import get_weather_by_coords
 from ai_core.incident_judge import judge_incident_with_gemini
-from utils.db_operations import update_incident_summary , create_incident_and_get_id
+from utils.db_operations import update_incident_summary, create_incident_and_get_id
 
 from utils.send_email import send_email_notification
+
+from rag_system.dms_rag_pipeline import RAGSystem, IncidentPayload, RAGResponse
+from utils.db_operations import get_incident_summary
 app = FastAPI(title="Disaster Smart API", version="1.0.0")
 
 # CORS for frontend
@@ -27,6 +32,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # Request/Response models (Pydantic)
 class AnalyzeResponse(BaseModel):
     incident_id: str
@@ -35,6 +41,7 @@ class AnalyzeResponse(BaseModel):
     judge: dict
     priority_score_0_10: int
     real_incident: bool
+
 
 # Helpers
 def _to_uploads(files: List[UploadFile]) -> List[Tuple[str, bytes, str]]:
@@ -50,14 +57,23 @@ def _to_uploads(files: List[UploadFile]) -> List[Tuple[str, bytes, str]]:
 
 def _compute_priority(severity: str, verdict: int) -> int:
     s = (severity or "").lower()
-    base = 10 if s == "critical" else 8 if s == "high" else 5 if s in ("moderate","medium") else 3 if s == "low" else 4
+    base = (
+        10
+        if s == "critical"
+        else (
+            8
+            if s == "high"
+            else 5 if s in ("moderate", "medium") else 3 if s == "low" else 4
+        )
+    )
     bonus = 2 if verdict >= 8 else 1 if verdict >= 5 else 0
     return min(10, base + bonus)
+
 
 @app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(
     channel: str = Form("app"),
-    username: str = Form(None),                # NEW: may be None -> fallback name used in helper
+    username: str = Form(None),  # NEW: may be None -> fallback name used in helper
     text: str = Form(""),
     lat: Optional[float] = Form(None),
     lon: Optional[float] = Form(None),
@@ -85,7 +101,7 @@ async def analyze(
         if not judge.get("real_incident", False):
             priority = 0
         else:
-            sev = (judge.get("final_severity"))
+            sev = judge.get("final_severity")
             priority = _compute_priority(sev, int(judge.get("verdict_score_0_10", 0)))
 
         # B) Update only incident_summary at the end
@@ -93,7 +109,7 @@ async def analyze(
             "incident_request": incident_request,
             "realworld_context": realworld_context,
             "judge": judge,
-            "priority_score_0_10": priority
+            "priority_score_0_10": priority,
         }
         update_incident_summary(incident_id, summary)
 
@@ -110,82 +126,140 @@ async def analyze(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 class DispatchIn(BaseModel):
     incident_id: str
 
+
 def _haversine_km(a_lat, a_lon, b_lat, b_lon):
     import math
-    R=6371.0
-    dlat=math.radians(b_lat-a_lat); dlon=math.radians(b_lon-a_lon)
-    la1=math.radians(a_lat); la2=math.radians(b_lat)
-    h=math.sin(dlat/2)**2+math.cos(la1)*math.cos(la2)*math.sin(dlon/2)**2
-    return 2*R*math.asin(math.sqrt(h))
+
+    R = 6371.0
+    dlat = math.radians(b_lat - a_lat)
+    dlon = math.radians(b_lon - a_lon)
+    la1 = math.radians(a_lat)
+    la2 = math.radians(b_lat)
+    h = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(la1) * math.cos(la2) * math.sin(dlon / 2) ** 2
+    )
+    return 2 * R * math.asin(math.sqrt(h))
+
 
 @app.post("/dispatch")
 async def dispatch_api(body: DispatchIn):
-    conn=connect_to_postgres()
+    conn = connect_to_postgres()
     try:
         with conn.cursor() as cur:
             # Fetch incident
-            cur.execute("""SELECT id, lat, lon, status FROM incidents WHERE id=%s""", (body.incident_id,))
+            cur.execute(
+                """SELECT id, lat, lon, status FROM incidents WHERE id=%s""",
+                (body.incident_id,),
+            )
             row = cur.fetchone()
             if not row:
                 raise HTTPException(404, "incident not found")
-            inc = {"id": row, "lat": float(row[2]), "lon": float(row[1]), "status": row[3]}
+            inc = {
+                "id": row,
+                "lat": float(row[2]),
+                "lon": float(row[1]),
+                "status": row[3],
+            }
             if inc["status"] != "verified":
                 raise HTTPException(409, "incident not verified")
 
             # Prevent duplicates within 10 minutes
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT id, state FROM dispatch_jobs
                 WHERE incident_id=%s AND enqueued_at > NOW() - INTERVAL '10 minutes'
                 ORDER BY enqueued_at DESC LIMIT 1
-            """, (inc["id"],))
+            """,
+                (inc["id"],),
+            )
             existing = cur.fetchone()
-            if existing and existing[2] in ("queued","allocating","assigned"):
-                return {"job_id": str(existing), "state": existing[2], "message": "dispatch already requested recently"}
+            if existing and existing[2] in ("queued", "allocating", "assigned"):
+                return {
+                    "job_id": str(existing),
+                    "state": existing[2],
+                    "message": "dispatch already requested recently",
+                }
 
             # Create job
             job_id = uuid.uuid4()
-            cur.execute("""INSERT INTO dispatch_jobs (id, incident_id, state, priority, enqueued_at)
-                           VALUES (%s,%s,'queued',50,NOW())""", (job_id, inc["id"]))
+            cur.execute(
+                """INSERT INTO dispatch_jobs (id, incident_id, state, priority, enqueued_at)
+                           VALUES (%s,%s,'queued',50,NOW())""",
+                (job_id, inc["id"]),
+            )
             conn.commit()
 
             # Allocating
-            cur.execute("""UPDATE dispatch_jobs SET state='allocating', started_at=NOW() WHERE id=%s""", (job_id,))
+            cur.execute(
+                """UPDATE dispatch_jobs SET state='allocating', started_at=NOW() WHERE id=%s""",
+                (job_id,),
+            )
             conn.commit()
 
             # Fetch teams
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT id, name, lat, lon, contact_email, contact_phone, capacity, load, available
                 FROM teams
                 WHERE available = TRUE AND (load < capacity)
-            """)
+            """
+            )
             teams = cur.fetchall()
             if not teams:
-                cur.execute("""UPDATE dispatch_jobs SET state='failed', finished_at=NOW(), last_error='no team available' WHERE id=%s""", (job_id,))
+                cur.execute(
+                    """UPDATE dispatch_jobs SET state='failed', finished_at=NOW(), last_error='no team available' WHERE id=%s""",
+                    (job_id,),
+                )
                 conn.commit()
-                return {"job_id": str(job_id), "state": "failed", "message": "No team available now."}
+                return {
+                    "job_id": str(job_id),
+                    "state": "failed",
+                    "message": "No team available now.",
+                }
 
             # Choose nearest
             best = None
             for t in teams:
-                tinfo = {"id": t, "name": t[2], "lat": float(t[1]), "lon": float(t[3]),
-                         "email": t[4], "phone": t[5], "capacity": int(t[6]), "load": int(t[7])}
+                tinfo = {
+                    "id": t,
+                    "name": t[2],
+                    "lat": float(t[1]),
+                    "lon": float(t[3]),
+                    "email": t[4],
+                    "phone": t[5],
+                    "capacity": int(t[6]),
+                    "load": int(t[7]),
+                }
                 dist = _haversine_km(inc["lat"], inc["lon"], tinfo["lat"], tinfo["lon"])
-                eta = max(5, int(dist/0.6))
+                eta = max(5, int(dist / 0.6))
                 if (best is None) or (eta < best["eta"]):
                     best = {"team": tinfo, "eta": eta, "dist": dist}
 
             # Notify (MVP: print)
-            print(f"[NOTIFY] Team {best['team']['name']} -> Incident {inc['id']} ({inc['lat']},{inc['lon']}) ETA~{best['eta']}m")
+            print(
+                f"[NOTIFY] Team {best['team']['name']} -> Incident {inc['id']} ({inc['lat']},{inc['lon']}) ETA~{best['eta']}m"
+            )
 
             # Optional: bump load by 1 for demo realism
-            cur.execute("""UPDATE teams SET load = LEAST(capacity, load+1) WHERE id=%s""", (best["team"]["id"],))
+            cur.execute(
+                """UPDATE teams SET load = LEAST(capacity, load+1) WHERE id=%s""",
+                (best["team"]["id"],),
+            )
 
             # Mark assigned and reflect incident state
-            cur.execute("""UPDATE dispatch_jobs SET state='assigned', finished_at=NOW() WHERE id=%s""", (job_id,))
-            cur.execute("""UPDATE incidents SET allocation_status='assigned' WHERE id=%s""", (inc["id"],))
+            cur.execute(
+                """UPDATE dispatch_jobs SET state='assigned', finished_at=NOW() WHERE id=%s""",
+                (job_id,),
+            )
+            cur.execute(
+                """UPDATE incidents SET allocation_status='assigned' WHERE id=%s""",
+                (inc["id"],),
+            )
             conn.commit()
 
             return {
@@ -195,24 +269,25 @@ async def dispatch_api(body: DispatchIn):
                     "team_id": str(best["team"]["id"]),
                     "team_name": best["team"]["name"],
                     "contact_phone": best["team"]["phone"],
-                    "contact_email": best["team"]["email"]
+                    "contact_email": best["team"]["email"],
                 },
                 "eta_min": best["eta"],
-                "message": f"{best['team']['name']} is on the way. Please follow safety guidance until they arrive."
+                "message": f"{best['team']['name']} is on the way. Please follow safety guidance until they arrive.",
             }
     finally:
         conn.close()
-
 
 
 from pydantic import BaseModel
 import uuid, json, os, smtplib
 from email.mime.text import MIMEText
 
+
 class RequestResourceIn(BaseModel):
     incident_id: int
 
-def _build_email_body(incident_id:int, summary:dict, team_name:str) -> str:
+
+def _build_email_body(incident_id: int, summary: dict, team_name: str) -> str:
     ir = summary.get("incident_request", {})
     ctx = summary.get("realworld_context", {})
     judge = summary.get("judge", {})
@@ -228,10 +303,14 @@ def _build_email_body(incident_id:int, summary:dict, team_name:str) -> str:
     if hz:
         lines.append("Hazards:")
         for h in hz:
-            lines.append(f"- {h.get('type','?')} | severity={h.get('severity','?')} | {h.get('details','')}")
+            lines.append(
+                f"- {h.get('type','?')} | severity={h.get('severity','?')} | {h.get('details','')}"
+            )
         lines.append("")
     pa = ir.get("people_affected") or {}
-    lines.append(f"People affected: est={pa.get('visible_count_estimate','?')} injuries_visible={pa.get('injuries_visible','?')}")
+    lines.append(
+        f"People affected: est={pa.get('visible_count_estimate','?')} injuries_visible={pa.get('injuries_visible','?')}"
+    )
     infra = ir.get("infrastructure") or {}
     if infra.get("blocked_roads"):
         lines.append(f"Blocked roads: {', '.join(infra['blocked_roads'])}")
@@ -239,9 +318,13 @@ def _build_email_body(incident_id:int, summary:dict, team_name:str) -> str:
     if ctx:
         lines.append("Real-world context:")
         lines.append(f"- location: {ctx.get('location')}")
-        lines.append(f"- weather: {ctx.get('description')} | temp_C: {ctx.get('temperature_C')} | humidity%: {ctx.get('humidity_percent')}")
+        lines.append(
+            f"- weather: {ctx.get('description')} | temp_C: {ctx.get('temperature_C')} | humidity%: {ctx.get('humidity_percent')}"
+        )
         lines.append("")
-    lines.append(f"Verdict: real_incident={judge.get('real_incident')} score(0-10)={judge.get('verdict_score_0_10')} final_severity={judge.get('final_severity')}")
+    lines.append(
+        f"Verdict: real_incident={judge.get('real_incident')} score(0-10)={judge.get('verdict_score_0_10')} final_severity={judge.get('final_severity')}"
+    )
     lines.append(f"Priority (0-10): {priority}")
     lines.append("")
     latlon = ir.get("location_hint") or f"{ir.get('lat')},{ir.get('lon')}"
@@ -250,7 +333,8 @@ def _build_email_body(incident_id:int, summary:dict, team_name:str) -> str:
     lines.append("Please acknowledge and proceed ASAP.")
     return "\n".join(lines)
 
-def _send_email_smtp(to_email:str, subject:str, body:str):
+
+def _send_email_smtp(to_email: str, subject: str, body: str):
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USER")
@@ -268,17 +352,21 @@ def _send_email_smtp(to_email:str, subject:str, body:str):
             s.login(smtp_user, smtp_pass)
         s.sendmail(from_email, [to_email], msg.as_string())
 
+
 @app.post("/request_resource")
 async def request_resource(body: RequestResourceIn):
     conn = connect_to_postgres()
     try:
         with conn.cursor() as cur:
             # 1) Load incident summary
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT incident_id, incident_summary
                 FROM incident
                 WHERE incident_id=%s
-            """, (body.incident_id,))
+            """,
+                (body.incident_id,),
+            )
             row = cur.fetchone()
             if not row:
                 raise HTTPException(404, "incident not found")
@@ -288,11 +376,14 @@ async def request_resource(body: RequestResourceIn):
                 summary = json.loads(summary or "{}")
 
             # 2) Fetch fixed rescue_team user_id=6
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT rescue_team_id, rescue_team_user_name, email_id, phone, location
                 FROM rescue_team
                 WHERE rescue_team_id=%s AND active_flag='Y'
-            """, (6,))
+            """,
+                (6,),
+            )
             t = cur.fetchone()
             if not t:
                 raise HTTPException(404, "rescue team (id=6) not found or inactive")
@@ -304,27 +395,36 @@ async def request_resource(body: RequestResourceIn):
                 "location": t[4],
             }
             if not team["email"]:
-                raise HTTPException(409, "rescue team email_id missing; cannot send email")
+                raise HTTPException(
+                    409, "rescue team email_id missing; cannot send email"
+                )
 
             # 3) Write dispatch job (audit) and mark team allocated
             job_id = str(uuid.uuid4())
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO dispatch_jobs (id, incident_id, state, priority, enqueued_at, started_at, finished_at)
                 VALUES (%s, %s, 'assigned', 50, NOW(), NOW(), NOW())
-            """, (job_id, str(incident_id)))
-            cur.execute("""
+            """,
+                (job_id, str(incident_id)),
+            )
+            cur.execute(
+                """
                 UPDATE rescue_team
                 SET is_allocated='Y', updated_date=NOW()
                 WHERE rescue_team_id=%s
-            """, (team["id"],))
+            """,
+                (team["id"],),
+            )
             conn.commit()
 
         # 4) Email the details
-        subject = f"[Rescue Dispatch] Incident #{incident_id} assigned to {team['name']}"
+        subject = (
+            f"[Rescue Dispatch] Incident #{incident_id} assigned to {team['name']}"
+        )
         body_txt = _build_email_body(incident_id, summary, team["name"])
         breakpoint()
-        send_email_notification(subject=subject,body=body_txt,to_mail=team["email"])
-        
+        send_email_notification(subject=subject, body=body_txt, to_mail=team["email"])
 
         # 5) Respond to UI
         return {
@@ -334,9 +434,9 @@ async def request_resource(body: RequestResourceIn):
                 "team_id": str(team["id"]),
                 "team_name": team["name"],
                 "contact_phone": team["phone"],
-                "contact_email": team["email"]
+                "contact_email": team["email"],
             },
-            "message": "Rescue team member will reach out ASAP."
+            "message": "Rescue team member will reach out ASAP.",
         }
     except HTTPException:
         raise
@@ -344,3 +444,54 @@ async def request_resource(body: RequestResourceIn):
         raise HTTPException(500, str(e))
     finally:
         conn.close()
+
+
+@app.post("/rag", response_model=RAGResponse)
+async def get_modified_sop(incident: IncidentPayload):
+    """
+    Performs the full RAG pipeline: retrieval, context injection, and generation.
+    """
+    print(f"Received request for incident_id: {incident.incident_id}")
+    rag_system = RAGSystem()
+
+    incident_output = incident.incident_output
+    if not incident_output:
+        incident_output = get_incident_summary(int(incident.incident_id))
+        if not incident_output:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No incident_summary found for incident_id={incident.incident_id}",
+            )
+        incident.incident_output = incident_output
+    # 1. Retrieval
+    # Use the detailed explanation for a richer search query
+    query = incident.incident_output.get("explanation", "")
+    if not query:
+        raise HTTPException(
+            status_code=400, detail="Incident output explanation is missing."
+        )
+
+    retrieved_sops = rag_system.retrieve(query)
+
+    if not retrieved_sops:
+        raise HTTPException(
+            status_code=404, detail="No relevant SOPs found for this incident."
+        )
+
+    # Get the best-matching document
+    best_match_sop = retrieved_sops[0]["document"]
+    best_match_metadata = retrieved_sops[0]["metadata"]
+
+    # 2. Generation
+    modified_sop = await rag_system.generate_response_with_llm(incident, best_match_sop)
+
+    # 3. Response
+    response = RAGResponse(
+        incident_id=incident.incident_id,
+        original_sop=best_match_sop,
+        modified_response=modified_sop,
+        retrieval_metadata=best_match_metadata,
+    )
+
+    print("RAG pipeline completed successfully.")
+    return response
