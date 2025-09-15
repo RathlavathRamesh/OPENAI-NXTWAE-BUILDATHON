@@ -32,7 +32,6 @@ class AnalyzeResponse(BaseModel):
     incident_id: str
     incident_request: dict
     realworld_context: dict
-    judge: dict
     priority_score_0_10: int
     real_incident: bool
 
@@ -66,7 +65,6 @@ async def analyze(
     try:
         # A) Create minimal incident row upfront and get its ID
         incident_id = create_incident_and_get_id(username, lat, lon)
-        breakpoint()
         # 1) Preprocess into incident (unchanged)
         uploads = _to_uploads(files)
         latlon_str = f"{lat},{lon}" if lat is not None and lon is not None else ""
@@ -102,9 +100,8 @@ async def analyze(
             incident_id=str(incident_id),
             incident_request=incident_request,
             realworld_context=realworld_context,
-            judge=judge,
             priority_score_0_10=priority,
-            real_incident=bool(judge.get("real_incident", False)),
+            real_incident=bool(True),
         )
 
     except Exception as e:
@@ -322,7 +319,6 @@ async def request_resource(body: RequestResourceIn):
         # 4) Email the details
         subject = f"[Rescue Dispatch] Incident #{incident_id} assigned to {team['name']}"
         body_txt = _build_email_body(incident_id, summary, team["name"])
-        breakpoint()
         send_email_notification(subject=subject,body=body_txt,to_mail=team["email"])
         
 

@@ -23,10 +23,8 @@ def send_email_notification(subject="Execution Failed!", body="Error occurred du
     
     # Validate that credentials are provided
     if not username or not password or not from_addr:
-        breakpoint()
         print("Error: Please provide username, password, and from_addr")
         return False
-    breakpoint()
     # Create the multipart email message
     msg = MIMEMultipart()
     msg['From'] = from_addr
