@@ -16,3 +16,11 @@ jupyter==1.0.0
 moviepy==1.0.3
 geocoder
 fastapi
+uvicorn==0.34.0
+chromadb==1.0.21
+pydantic==2.8.2
+sentence-transformers==3.0.0
+PyPDF2
+google-genai==1.36.0
+python-multipart
+psycopg2

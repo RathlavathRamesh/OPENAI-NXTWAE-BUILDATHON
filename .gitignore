@@ -12,3 +12,5 @@ venv/
 # ignore system files
 .DS_Store
 .early.coverage
+#pdfs related disaster precautions
+rag_system/disaster_sops
