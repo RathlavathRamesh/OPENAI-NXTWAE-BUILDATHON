@@ -1,0 +1,26 @@
+# Essential FastAPI Dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# HTTP client
+requests>=2.31.0
+
+# Data validation
+pydantic>=2.5.0
+
+# AI Model Dependencies
+google-generativeai>=0.3.0
+openai>=1.0.0
+groq>=0.4.0
+
+# Image/Video Processing
+Pillow>=9.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# Additional utilities
+httpx>=0.25.0
