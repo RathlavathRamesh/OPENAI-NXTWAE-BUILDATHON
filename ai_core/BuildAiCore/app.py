@@ -25,6 +25,8 @@ from schemas import IncidentRequest, CompleteResponse
 from preprocess_agent import run_preprocess_agent
 from analysis_agent import run_analysis_agent
 from judge_agent import run_judge_agent
+from BE.utils import (processed_input_summary_json, analyze_summarize_json ,
+ judgement_summary_json , final_summary_json)
 
 app = FastAPI(
     title="Disaster Response AI System (Gemini Only)",
@@ -68,7 +70,7 @@ async def upload_request(
     text: str = Form(...),
     lat: Optional[float] = Form(None),
     lon: Optional[float] = Form(None),
-    incident_id: Optional[str] = Form(None),
+    incident_id: Optional[int] = Form(None),
     files: Optional[List[UploadFile]] = File(None)
 ):
     start_time = datetime.utcnow()
@@ -104,15 +106,28 @@ async def upload_request(
 
     # Proceed through agents; uploads may be empty (text-only)
     layer1 = await run_preprocess_agent(channel=channel, text=text, latlon=latlon, uploads=uploads)
+    result1=processed_input_summary_json(incident_id, layer1)
+    print(f"result1: {result1}")
     lat_coord, lon_coord = (lat or 17.3850), (lon or 78.4867)
     layer2 = run_analysis_agent(layer1, lat_coord, lon_coord)
+    result2=analyze_summarize_json(incident_id, layer2)
+    print(f"result2: {result2}")
     layer3 = run_judge_agent(layer2)
-
+    result3=judgement_summary_json(incident_id, layer3)
+    print(f"result3: {result3}")
     processing_time = int((datetime.utcnow() - start_time).total_seconds() * 1000)
     final_priority = layer3.get("priority_score_0_10", 0)
     final_authentic = layer3.get("incident_authentic", True)
     final_severity = layer3.get("final_severity", "Unknown")
-
+    final_json={
+            "priority_score": final_priority,
+            "authentic": final_authentic,
+            "severity": final_severity,
+            "summary": layer1.get("situation_analysis", {}).get("summary", ""),
+            "recommendations": layer3.get("recommendations", []),
+        }
+    final_result=final_summary_json(incident_id, final_json)
+    print(f"final_result: {final_result}")
     return CompleteResponse(
         request_id=request_id,
         timestamp=datetime.utcnow().isoformat() + "Z",
@@ -121,13 +136,7 @@ async def upload_request(
         layer1_preprocess=layer1,
         layer2_analysis=layer2,
         layer3_judge=layer3,
-        final_results={
-            "priority_score": final_priority,
-            "authentic": final_authentic,
-            "severity": final_severity,
-            "summary": layer1.get("situation_analysis", {}).get("summary", ""),
-            "recommendations": layer3.get("recommendations", []),
-        },
+        final_results=final_json,
         errors=errors,
     )
 

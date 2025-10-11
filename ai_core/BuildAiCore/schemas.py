@@ -95,7 +95,7 @@ class Layer3Response(BaseModel):
 
 class CompleteResponse(BaseModel):
     """Complete response from all 3 layers"""
-    request_id: str
+    request_id: int
     timestamp: str
     status: str
     processing_time_ms: int

@@ -1,7 +1,7 @@
 import psycopg2
 import json 
 from typing import Dict, Any
-from environment import Config
+from .environment import Config
 
 def processed_input_summary_json(incident_id : int, processed_input_json : json) -> Dict[str, Any]:
     """
@@ -20,7 +20,7 @@ def processed_input_summary_json(incident_id : int, processed_input_json : json)
             SET PROCESSED_INPUT_JSON = %s
             WHERE INCIDENT_ID = %s;
         """
-        cursor.execute(update_query, (processed_input_json, incident_id))
+        cursor.execute(update_query, (json.dumps(processed_input_json), incident_id))
         conn.commit()
         cursor.close()
         conn.close()
@@ -53,7 +53,7 @@ def analyze_summarize_json(incident_id : int, analyze_summarize_json : json) -> 
             SET ANALYZE_SUMMARIZE_JSON = %s
             WHERE INCIDENT_ID = %s;
         """
-        cursor.execute(update_query, (analyze_summarize_json, incident_id))
+        cursor.execute(update_query, (json.dumps(analyze_summarize_json), incident_id))
         conn.commit()
         cursor.close()
         conn.close()
@@ -85,7 +85,7 @@ def judgement_summary_json(incident_id : int, judgement_summary_json : json) -> 
             SET JUDGEMENT_SUMMARY_JSON = %s
             WHERE INCIDENT_ID = %s;
         """
-        cursor.execute(update_query, (judgement_summary_json, incident_id))
+        cursor.execute(update_query, (json.dumps(judgement_summary_json), incident_id))
         conn.commit()
         cursor.close()
         conn.close()
@@ -118,7 +118,7 @@ def final_summary_json(incident_id : int, final_summary_json : json) -> Dict[str
             SET FINAL_SUMMARY_JSON = %s
             WHERE INCIDENT_ID = %s;
         """
-        cursor.execute(update_query, (final_summary_json, incident_id))
+        cursor.execute(update_query, (json.dumps(final_summary_json), incident_id))
         conn.commit()
         cursor.close()
         conn.close()
