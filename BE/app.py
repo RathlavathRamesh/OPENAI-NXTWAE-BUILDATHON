@@ -7,7 +7,7 @@ from google import genai
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app, resources={r"/": {"origins": ""}}, supports_credentials=True)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 #Route to provide the response for a given prompt using OpenAI GPT-5 (For now we are using Gemini)
 @app.route('/api/generate-response', methods=['POST'])
