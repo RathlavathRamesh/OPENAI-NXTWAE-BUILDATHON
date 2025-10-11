@@ -3,9 +3,104 @@ import time
 import json 
 import psycopg2
 from environment import Config
+from google import genai
 
 app = Flask(__name__)
 
+#Route to provide the response for a given prompt using OpenAI GPT-5 (For now we are using Gemini)
+@app.route('/api/generate-response', methods=['POST'])
+def generate_response():
+    #Fetch the input payload from the request
+    input_data = request.get_json()
+    if input_data is None or 'prompt' not in input_data:
+        response = {
+            "execution_status": "Failed",
+            "status_code": 400,
+            "message": "Invalid input: 'prompt' key is missing",
+            "error_code": "INVALID_INPUT",
+            "error_message": "'prompt' key is required in the request body",
+            "output_kpis": {
+                "execution_time": 0
+            }
+        }
+        return Response(json.dumps(response), status=400, mimetype='application/json')
+    #Record the start time for execution time calculation
+    start_time = time.time()
+    try:
+        #Get the prompt and other details from the input data
+        prompt = input_data['prompt']
+        section_id = int(input_data.get('section_id'))
+        section_name = input_data.get('section_name')
+        user_id = int(input_data.get('user_id'))
+        #Access the DB connection string and schema from config
+        DB_CONNECTION_STRING = Config.DB_CONNECTION_STRING
+        DB_SCHEMA = Config.DB_SCHEMA
+        #Create the connection to the database
+        conn = psycopg2.connect(DB_CONNECTION_STRING)
+        cursor = conn.cursor()
+        #Prepare a query to insert the prompt details into the database
+        insert_query = f"""
+                            INSERT INTO {DB_SCHEMA}.PROMPT_RESPONSES
+                            (PROMPT, SECTION_ID, SECTION_NAME, PROMPT_GIVEN_AT, USER_ID, CREATED_BY)
+                            VALUES (%s, %s, %s, NOW(), %s, %s)
+                            RETURNING PROMPT_RESPONSE_ID;
+                        """
+        cursor.execute(insert_query, (prompt, section_id, section_name, user_id, user_id))
+        prompt_response_id = cursor.fetchone()[0]
+        conn.commit()
+        #Get the Gemini API key from config
+        GOOGLE_API_KEY = Config.GOOGLE_API_KEY
+        #Create the genai client
+        client = genai.Client(api_key=GOOGLE_API_KEY)
+        #Generate the response using Gemini API 
+        model_response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
+        response_text = model_response.text
+        #Update the record with response and response time 
+        update_query = f"""
+                            UPDATE {DB_SCHEMA}.PROMPT_RESPONSES
+                            SET 
+                                RESPONSE = %s, 
+                                RESPONSE_PROVIDED_AT = NOW(),
+                                UPDATED_BY = %s,
+                                UPDATED_DATE = NOW()
+                            WHERE PROMPT_RESPONSE_ID = %s;
+                        """
+        cursor.execute(update_query, (json.dumps({"response": response_text}), user_id, prompt_response_id))
+        conn.commit()
+        #Close the cursor and connection
+        cursor.close()
+        conn.close()
+        response = {
+            "execution_status": "Success",  
+            "status_code": 200,
+            "message": "Response generated successfully",
+            "error_code": None,
+            "error_message": None,
+            "output_kpis": {
+                "execution_time": round(time.time() - start_time, 2)
+            },
+            "body": {
+                "response": response_text
+            }
+        }
+        return Response(json.dumps(response), status=200, mimetype='application/json')        
+    except Exception as e:
+        response = {
+            "execution_status": "Failed",
+            "status_code": 500,
+            "message": "Error generating response",
+            "error_code": "GENAI_ERROR",
+            "error_message": str(e),
+            "output_kpis": {
+                "execution_time": round(time.time() - start_time, 2)
+            }
+        }
+        return Response(json.dumps(response), status=500, mimetype='application/json')
+        
+        
 #Route to fetch all incidents
 @app.route('/api/allincidents',methods=['GET'])
 def fetch_all_incidents():
