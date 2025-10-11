@@ -4,6 +4,7 @@ import os, sys, base64
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from dotenv import load_dotenv
+import uvicorn
 
 # Resolve project root and load .env early
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -129,3 +130,7 @@ async def upload_request(
         },
         errors=errors,
     )
+
+if __name__ == "__main__":
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+
