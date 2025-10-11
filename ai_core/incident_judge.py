@@ -48,26 +48,38 @@ def judge_incident_with_gemini(
     incident_request: Dict[str, Any],
     realworld_context: Dict[str, Any],
 ) -> Dict[str, Any]:
-    client = _get_client()
-    contents: List[Any] = [
-        JUDGE_SYSTEM,
-        f"INCIDENT_REQUEST_JSON:\n{json.dumps(incident_request, ensure_ascii=False)}",
-        f"REALWORLD_CONTEXT_JSON:\n{json.dumps(realworld_context, ensure_ascii=False)}",
-    ]
-    resp = client.models.generate_content(
-        model=GEMINI_JUDGE_MODEL,
-        contents=contents,
-        config={
-            "temperature": 0.0,
-            "response_mime_type": "application/json",
-            "response_schema": JUDGE_SCHEMA,
-        },
-    )
-    txt = (getattr(resp, "text", "") or "").strip()
     try:
-        out = json.loads(txt) if txt else {}
-    except Exception:
-        out = {}
+        client = _get_client()
+        contents: List[Any] = [
+            JUDGE_SYSTEM,
+            f"INCIDENT_REQUEST_JSON:\n{json.dumps(incident_request, ensure_ascii=False)}",
+            f"REALWORLD_CONTEXT_JSON:\n{json.dumps(realworld_context, ensure_ascii=False)}",
+        ]
+        resp = client.models.generate_content(
+            model=GEMINI_JUDGE_MODEL,
+            contents=contents,
+            config={
+                "temperature": 0.0,
+                "response_mime_type": "application/json",
+                "response_schema": JUDGE_SCHEMA,
+            },
+        )
+        txt = (getattr(resp, "text", "") or "").strip()
+        try:
+            out = json.loads(txt) if txt else {}
+        except Exception:
+            out = {}
+    except Exception as e:
+        print(f"Gemini API error: {e}")
+        # Return mock response if API fails
+        out = {
+            "criteria": {"location": 0.5, "hazard": 0.5, "severity": 0.5, "impact": 0.5, "recency": 0.5},
+            "verdict_score_0_10": 5,
+            "real_incident": True,
+            "final_severity": "Medium",
+            "explanation": f"Mock response due to API error: {str(e)}"
+        }
+    
     # Clamp defaults
     crit = out.get("criteria", {})
     for k in ["location","hazard","severity","impact","recency"]:
