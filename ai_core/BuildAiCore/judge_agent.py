@@ -17,7 +17,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from ai_core.incident_judge import judge_incident_with_gemini
+from incident_judge import judge_incident_with_gemini
 
 class JudgeAgent:
     """
