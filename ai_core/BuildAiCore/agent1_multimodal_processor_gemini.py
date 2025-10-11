@@ -36,7 +36,7 @@ from io import BytesIO
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 # Model configurations
-GEMINI_MODEL = "gemini-1.5-pro"
+GEMINI_MODEL = "gemini-2.5-flash"
 
 # Initialize Gemini
 if GEMINI_API_KEY:
@@ -83,14 +83,15 @@ class GeminiMultimodalProcessor:
         """
         start_time = datetime.utcnow()
         incident_id = f"incident_{datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')}"
-        breakpoint()
         try:
             print(f"🔍 Gemini Multimodal Processor: Processing {len(uploads)} media items...")
             
             # Process each media item
-            breakpoint()
             media_analyses = []
-            for filename, content_bytes, mime_type in uploads:
+            for upload in uploads:
+                filename = upload["filename"]
+                content_bytes = base64.b64decode(upload["content"])  # Decode from base64
+                mime_type = upload["mime_type"]
                 try:
                     analysis = await self._analyze_media_with_gemini(filename, content_bytes, mime_type)
                     media_analyses.append(analysis)
@@ -241,7 +242,6 @@ class GeminiMultimodalProcessor:
                     "immediate_dangers": [],
                     "description": analysis_text
                 }
-            
             processing_time = int((datetime.utcnow() - start_time).total_seconds() * 1000)
             
             return MediaAnalysis(

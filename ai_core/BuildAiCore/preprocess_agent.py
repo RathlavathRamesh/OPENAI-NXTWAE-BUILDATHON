@@ -47,10 +47,8 @@ class PreprocessAgent:
         """
         try:
             print(f"🔍 {self.agent_name}: Processing multimodal input...")
-            breakpoint()
             # Use the existing multimodal processor
             result = await process_multimodal_input(channel, text, latlon, uploads)
-            breakpoint()
             # Extract and structure the incident summary
             incident_summary = {
                 "agent": self.agent_name,
@@ -125,5 +123,4 @@ async def run_preprocess_agent(channel: str,
     Convenience function to run the preprocess agent
     """
     agent = PreprocessAgent()
-    breakpoint()
     return await agent.process_incident(channel, text, latlon, uploads)

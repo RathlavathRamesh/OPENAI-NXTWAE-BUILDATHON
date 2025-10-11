@@ -39,6 +39,28 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
+# ---------- MIME correction helpers ----------
+def sniff_mime_from_name(name: str) -> str:
+    n = (name or "").lower()
+    if n.endswith(".mp4"):   return "video/mp4"
+    if n.endswith(".mov"):   return "video/quicktime"
+    if n.endswith(".mkv"):   return "video/x-matroska"
+    if n.endswith(".webm"):  return "video/webm"
+    if n.endswith(".wav"):   return "audio/wav"
+    if n.endswith(".mp3"):   return "audio/mpeg"
+    if n.endswith(".m4a"):   return "audio/mp4"
+    if n.endswith(".aac"):   return "audio/aac"
+    if n.endswith(".jpg") or n.endswith(".jpeg"): return "image/jpeg"
+    if n.endswith(".png"):   return "image/png"
+    if n.endswith(".webp"):  return "image/webp"
+    return "application/octet-stream"
+
+def force_mime_by_name(filename: str, incoming: Optional[str]) -> str:
+    # Always trust filename extension over incoming header
+    guessed = sniff_mime_from_name(filename)
+    return guessed or (incoming or "application/octet-stream")
+
+# ---------- Endpoint ----------
 @app.post("/upload_request", response_model=CompleteResponse)
 async def upload_request(
     channel: str = Form(...),
@@ -46,7 +68,7 @@ async def upload_request(
     lat: Optional[float] = Form(None),
     lon: Optional[float] = Form(None),
     incident_id: Optional[str] = Form(None),
-    files: List[UploadFile] = File(default=[])
+    files: Optional[List[UploadFile]] = File(None)
 ):
     start_time = datetime.utcnow()
     request_id = incident_id or f"req_{datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')}"
@@ -54,24 +76,34 @@ async def upload_request(
 
     latlon = f"{lat},{lon}" if lat is not None and lon is not None else None
 
+    print(f"[upload_request] received files count = {len(files or [])}")
+
     uploads: List[Dict[str, Any]] = []
-    for f in files:
+    for f in files or []:
         try:
+            # Show what client sent
+            print(f"[upload_request] incoming part: {f.filename} -> {f.content_type}")
             content = await f.read()
+
+            # Hard override MIME by filename, ignoring incorrect client headers
+            mime = force_mime_by_name(f.filename or "", f.content_type)
+            if (f.content_type or "").startswith("image/") and mime.startswith("video/"):
+                print(f"[upload_request] correcting client MIME: {f.filename} {f.content_type} -> {mime}")
+
             uploads.append({
-                "filename": f.filename,
+                "filename": f.filename or "",
                 "content": base64.b64encode(content).decode("utf-8"),
-                "mime_type": f.content_type or "application/octet-stream",
+                "mime_type": mime,
                 "size": len(content),
             })
-        except Exception as e:
-            errors.append(f"file {f.filename}: {e}")
+            print(f"[upload_request] normalized: {f.filename} -> {mime}, size={len(content)}")
 
+        except Exception as e:
+            errors.append(f"file {getattr(f, 'filename', 'unknown')}: {e}")
+
+    # Proceed through agents; uploads may be empty (text-only)
     layer1 = await run_preprocess_agent(channel=channel, text=text, latlon=latlon, uploads=uploads)
-    breakpoint()
-    lat_coord, lon_coord = 17.3850, 78.4867
-    if lat is not None and lon is not None:
-        lat_coord, lon_coord = lat, lon
+    lat_coord, lon_coord = (lat or 17.3850), (lon or 78.4867)
     layer2 = run_analysis_agent(layer1, lat_coord, lon_coord)
     layer3 = run_judge_agent(layer2)
 
