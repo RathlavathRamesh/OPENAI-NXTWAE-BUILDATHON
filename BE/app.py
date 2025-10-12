@@ -398,7 +398,7 @@ def fetch_all_incidents():
                         D.USER_NAME AS REPORTED_BY
                     FROM 
                         {DB_SCHEMA}.INCIDENTS A
-                        JOIN 
+                        LEFT JOIN 
                         {DB_SCHEMA}.SEVERITY_LEVELS B 
                         ON A.SEVERITY_LEVEL_ID = B.SEVERITY_LEVEL_ID
                         AND 
@@ -504,7 +504,7 @@ def fetch_recent_incidents():
                         CAST(ROUND(EXTRACT(EPOCH FROM (NOW() - A.CREATED_DATE)) / 60,2) AS FLOAT) AS ELAPSED_TIME_MINS
                     FROM 
                         {DB_SCHEMA}.INCIDENTS A
-                        JOIN 
+                        LEFT JOIN 
                         {DB_SCHEMA}.SEVERITY_LEVELS B 
                         ON A.SEVERITY_LEVEL_ID = B.SEVERITY_LEVEL_ID
                         AND 
