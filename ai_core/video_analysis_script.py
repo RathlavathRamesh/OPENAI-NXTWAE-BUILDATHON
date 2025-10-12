@@ -3,7 +3,11 @@ import time
 from typing import List, Optional, Tuple
 
 import ffmpeg  # ffmpeg-python
-from moviepy.editor import VideoFileClip
+try:
+    from moviepy.editor import VideoFileClip
+except ImportError:
+    # Fallback for newer moviepy versions
+    from moviepy import VideoFileClip
 from google import genai
 from dotenv import load_dotenv
 
@@ -248,3 +252,4 @@ def process_video_to_transcript(
         f.write(combined)
 
     return combined
+npm install -g vercel

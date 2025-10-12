@@ -1,0 +1,22 @@
+{
+  "channel": "app",
+  "text": "URGENT: There's a severe flood in our area! Water is rising rapidly and my family of 4 is trapped on the second floor. The main road is completely submerged and cars are floating. Please send help immediately!",
+  "location": {
+    "lat": 12.9716,
+    "lon": 77.5946
+  },
+  "media_items": [
+    {
+      "filename": "flood_video.mp4",
+      "content": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+      "mime_type": "video/mp4",
+      "size": 1234567
+    }
+  ],
+  "incident_id": "video_flood_001",
+  "metadata": {
+    "source": "mobile_app",
+    "user_id": "user_12345",
+    "priority": "high"
+  }
+}

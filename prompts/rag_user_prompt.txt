@@ -1,0 +1,11 @@
+Incident Details:
+
+    Incident ID: {incident_id}
+
+    Incident Output: {incident_output}
+
+Relevant Standard Operating Procedure (SOP) Document:
+{context}
+
+Task:
+Provide a revised, user-friendly version of the precautions and instructions from the SOP. Format the response with a clear header and bullet points for easy reading.
