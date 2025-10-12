@@ -1,7 +1,7 @@
 import psycopg2
 import json 
 from typing import Dict, Any
-from environment import Config
+from .environment import Config
 
 def processed_input_summary_json(incident_id : int, processed_input_json : json) -> Dict[str, Any]:
     """
