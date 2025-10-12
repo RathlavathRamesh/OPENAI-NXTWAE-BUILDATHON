@@ -167,10 +167,18 @@ async def upload_request(
         }
     final_result=final_summary_json(incident_id, final_json)
     print(f"final_result: {final_result}")
+    body = f"""
+    Priority: {final_result.get('priority_score')}
+    Authentic: {final_result.get('authentic')}
+    Severity: {final_result.get('severity')}
+    Summary: {final_result.get('summary')}
+    Recommendations: {final_result.get('recommendations')}
+    """
+
     send_incident_email(
         to_email="naseerbabashaiksk@gmail.com",
         subject="🚨 Incident Alert: Flood Detected",
-        body= final_result
+        body= body
         )
     print("Email sent successfully")
 
