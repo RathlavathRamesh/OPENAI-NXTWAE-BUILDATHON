@@ -10,6 +10,7 @@ from flask import Flask, request, jsonify
 import os
 import base64
 
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
@@ -107,6 +108,181 @@ def generate_response():
         }
         return Response(json.dumps(response), status=500, mimetype='application/json')
         
+@app.route('/api/register', methods=['POST'])
+def register_user():
+    start_time = time.time()
+    try:
+        input_data = request.get_json()
+        required_fields = ['user_name', 'email', 'password']
+
+        # Validate input
+        if not input_data or not all(field in input_data for field in required_fields):
+            response = {
+                "execution_status": "Failed",
+                "status_code": 400,
+                "message": "Invalid input: Missing required fields",
+                "error_code": "INVALID_INPUT",
+                "error_message": "Fields 'user_name', 'email', and 'password' are required",
+                "output_kpis": {"execution_time": 0}
+            }
+            return Response(json.dumps(response), status=400, mimetype='application/json')
+
+        user_name = input_data['user_name']
+        email = input_data['email']
+        password = input_data['password']
+        hashed_password = generate_password_hash(password)
+
+        # Connect to DB
+        DB_CONNECTION_STRING = Config.DB_CONNECTION_STRING
+        DB_SCHEMA = Config.DB_SCHEMA
+        conn = psycopg2.connect(DB_CONNECTION_STRING)
+        cursor = conn.cursor()
+
+        # Check if email already exists
+        cursor.execute(f"SELECT USER_ID FROM {DB_SCHEMA}.USERS_INFORMATION WHERE EMAIL = %s;", (email,))
+        existing_user = cursor.fetchone()
+        if existing_user:
+            response = {
+                "execution_status": "Failed",
+                "status_code": 409,
+                "message": "User already exists",
+                "error_code": "USER_EXISTS",
+                "error_message": "Email is already registered",
+                "output_kpis": {"execution_time": round(time.time() - start_time, 2)}
+            }
+            return Response(json.dumps(response), status=409, mimetype='application/json')
+
+        # Insert new user
+        insert_query = f"""
+            INSERT INTO {DB_SCHEMA}.USERS_INFORMATION
+            (USER_NAME, EMAIL, PASSWORD, CREATED_BY, CREATED_DATE, ACTIVE_FLAG)
+            VALUES (%s, %s, %s, %s, NOW(), 'Y')
+            RETURNING USER_ID;
+        """
+        cursor.execute(insert_query, (user_name, email, hashed_password, 1))
+        user_id = cursor.fetchone()[0]
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        response = {
+            "execution_status": "Success",
+            "status_code": 201,
+            "message": "User registered successfully",
+            "error_code": None,
+            "error_message": None,
+            "output_kpis": {"execution_time": round(time.time() - start_time, 2)},
+            "body": {"user_id": user_id, "email": email}
+        }
+        return Response(json.dumps(response), status=201, mimetype='application/json')
+
+    except Exception as e:
+        response = {
+            "execution_status": "Failed",
+            "status_code": 500,
+            "message": "Error registering user",
+            "error_code": "DB_ERROR",
+            "error_message": str(e),
+            "output_kpis": {"execution_time": round(time.time() - start_time, 2)}
+        }
+        return Response(json.dumps(response), status=500, mimetype='application/json')
+
+@app.route('/api/login', methods=['POST'])
+def login_user():
+    start_time = time.time()
+    try:
+        input_data = request.get_json()
+        if not input_data or 'email' not in input_data or 'password' not in input_data:
+            response = {
+                "execution_status": "Failed",
+                "status_code": 400,
+                "message": "Invalid input: Missing email or password",
+                "error_code": "INVALID_INPUT",
+                "error_message": "'email' and 'password' are required",
+                "output_kpis": {"execution_time": 0}
+            }
+            return Response(json.dumps(response), status=400, mimetype='application/json')
+
+        email = input_data['email']
+        password = input_data['password']
+
+        DB_CONNECTION_STRING = Config.DB_CONNECTION_STRING
+        DB_SCHEMA = Config.DB_SCHEMA
+        conn = psycopg2.connect(DB_CONNECTION_STRING)
+        cursor = conn.cursor()
+
+        # Fetch user details
+        cursor.execute(
+            f"SELECT USER_ID, USER_NAME, PASSWORD, ACTIVE_FLAG FROM {DB_SCHEMA}.USERS_INFORMATION WHERE EMAIL = %s;",
+            (email,))
+        user = cursor.fetchone()
+
+        if not user:
+            response = {
+                "execution_status": "Failed",
+                "status_code": 404,
+                "message": "User not found",
+                "error_code": "USER_NOT_FOUND",
+                "error_message": "Invalid email or password",
+                "output_kpis": {"execution_time": round(time.time() - start_time, 2)}
+            }
+            return Response(json.dumps(response), status=404, mimetype='application/json')
+
+        user_id, user_name, stored_password, active_flag = user
+
+        # Check if active
+        if active_flag != 'Y':
+            response = {
+                "execution_status": "Failed",
+                "status_code": 403,
+                "message": "Account inactive",
+                "error_code": "ACCOUNT_INACTIVE",
+                "error_message": "User account is deactivated",
+                "output_kpis": {"execution_time": round(time.time() - start_time, 2)}
+            }
+            return Response(json.dumps(response), status=403, mimetype='application/json')
+
+        # Verify password
+        if not check_password_hash(stored_password, password):
+            response = {
+                "execution_status": "Failed",
+                "status_code": 401,
+                "message": "Invalid credentials",
+                "error_code": "INVALID_CREDENTIALS",
+                "error_message": "Incorrect password",
+                "output_kpis": {"execution_time": round(time.time() - start_time, 2)}
+            }
+            return Response(json.dumps(response), status=401, mimetype='application/json')
+
+        cursor.close()
+        conn.close()
+
+        # Successful login
+        response = {
+            "execution_status": "Success",
+            "status_code": 200,
+            "message": "Login successful",
+            "error_code": None,
+            "error_message": None,
+            "output_kpis": {"execution_time": round(time.time() - start_time, 2)},
+            "body": {
+                "user_id": user_id,
+                "user_name": user_name,
+                "email": email
+            }
+        }
+        return Response(json.dumps(response), status=200, mimetype='application/json')
+
+    except Exception as e:
+        response = {
+            "execution_status": "Failed",
+            "status_code": 500,
+            "message": "Error during login",
+            "error_code": "DB_ERROR",
+            "error_message": str(e),
+            "output_kpis": {"execution_time": round(time.time() - start_time, 2)}
+        }
+        return Response(json.dumps(response), status=500, mimetype='application/json')
         
 #Route to fetch all incidents
 @app.route('/api/allincidents',methods=['GET'])
