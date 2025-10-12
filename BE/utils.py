@@ -133,9 +133,8 @@ def final_summary_json(incident_id : int, final_summary_json : json) -> Dict[str
                             WHERE i.INCIDENT_ID = %s;
                         """
         # Convert the input JSON to a Python dictionary if it's a string
-        data = final_summary_json
         cursor.execute(
-                        update_query,(final_summary_json, priority_score, recommendations, severity, incident_id)
+                        update_query,(json.dumps(final_summary_json), priority_score, recommendations, severity, incident_id)
                     )
         conn.commit()
         cursor.close()
