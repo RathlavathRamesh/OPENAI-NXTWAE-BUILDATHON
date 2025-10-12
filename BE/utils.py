@@ -1,7 +1,7 @@
 import psycopg2
 import json 
 from typing import Dict, Any
-from .environment import Config
+from environment import Config
 
 def processed_input_summary_json(incident_id : int, processed_input_json : json) -> Dict[str, Any]:
     """
@@ -112,17 +112,22 @@ def final_summary_json(incident_id : int, final_summary_json : json) -> Dict[str
         #Create the connection
         conn = psycopg2.connect(DB_CONNECTION_STRING)
         cursor = conn.cursor()
+        #Extracting values from final_summary_json
+        priority_score = final_summary_json.get("priority_score")
+        recommendations = json.dumps(final_summary_json.get("recommendations"))  # convert list to JSON string
+        severity = final_summary_json.get("severity")
+        final_summary_json = json.dumps(final_summary_json)  
         #Query to update the final_summary_json
         update_query = f"""
                             UPDATE {DB_SCHEMA}.INCIDENTS i
                             SET
                                 FINAL_SUMMARY_JSON = %s,
-                                PRIORITY_SCORE = (to_jsonb(%s) ->> 'priority_score')::INT,
-                                RISK_FACTORS = (to_jsonb(%s) ->> 'recommendations')::JSONB,
+                                EMERGENCY_SCORE = %s,
+                                RISK_FACTORS = %s,
                                 SEVERITY_LEVEL_ID = (
                                     SELECT s.severity_level_id
                                     FROM {DB_SCHEMA}.severity_levels s
-                                    WHERE s.severity_level_name = (to_jsonb(%s) ->> 'severity')
+                                    WHERE s.severity_level = %s
                                     LIMIT 1
                                 )
                             WHERE i.INCIDENT_ID = %s;
@@ -130,16 +135,8 @@ def final_summary_json(incident_id : int, final_summary_json : json) -> Dict[str
         # Convert the input JSON to a Python dictionary if it's a string
         data = final_summary_json
         cursor.execute(
-                        update_query,
-                        (
-                            json.dumps(data),  # 1 → FINAL_SUMMARY_JSON
-                            json.dumps(data),  # 2 → Extract priority_score
-                            json.dumps(data),  # 3 → Extract recommendations
-                            json.dumps(data),  # 4 → Extract severity for lookup
-                            incident_id        # 5 → Target record
-                        )
+                        update_query,(final_summary_json, priority_score, recommendations, severity, incident_id)
                     )
-        cursor.execute(update_query, (json.dumps(final_summary_json), incident_id))
         conn.commit()
         cursor.close()
         conn.close()
@@ -156,4 +153,5 @@ def final_summary_json(incident_id : int, final_summary_json : json) -> Dict[str
         }
        
  
- 
+response =  final_summary_json(17,{"priority_score": 0, "authentic": False, "severity": "Unknown", "summary": "", "recommendations": ["Incident not verified - investigate further", "Consider false alarm protocols", "Data inconsistencies detected - manual review recommended"]})
+print(response)

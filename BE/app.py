@@ -828,8 +828,6 @@ def submit_request():
         DB_SCHEMA = Config.DB_SCHEMA
         conn = psycopg2.connect(DB_CONNECTION_STRING)
         cursor = conn.cursor()
-
-        breakpoint()
         # Format location as JSON
         location_json = {
             "place": "NIAT Hyderabad",
