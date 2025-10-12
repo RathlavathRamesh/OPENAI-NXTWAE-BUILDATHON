@@ -196,27 +196,29 @@ export default function Report() {
         }
       });
 
-      const response = await fetch(
-        `http://127.0.0.1:8002/api/submitrequest`,
+      fetch(
+        `${API_BASE_URL}/api/submitrequest`,
         {
           method: "POST",
           body: form,
         }
       );
-      if (!response.ok) throw new Error("Failed to submit incident");
-      toast({
-        title: "Incident Submitted",
-        description: "Your report has been sent successfully.",
-      });
-      navigate("/incidents");
+       navigate("/incidents");
+      // if (!response.ok) throw new Error("Failed to submit incident");
+      // toast({
+      //   title: "Incident Submitted",
+      //   description: "Your report has been sent successfully.",
+      // });
+      // navigate("/incidents");
     } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Submission Failed",
-        description: "Could not submit the report. Please try again.",
-      });
+      // toast({
+      //   variant: "destructive",
+      //   title: "Submission Failed",
+      //   description: "Could not submit the report. Please try again.",
+      // });
     } finally {
       setIsSubmitting(false);
+       navigate("/incidents");
     }
   };
 

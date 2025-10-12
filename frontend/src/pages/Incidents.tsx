@@ -22,7 +22,15 @@ export default function Incidents() {
         setIncidents([]);
       }
     };
+    
+    // Initial fetch
     fetchIncidents();
+    
+    // Set up polling interval
+    const intervalId = setInterval(fetchIncidents, 10000);
+    
+    // Cleanup function to clear interval when component unmounts
+    return () => clearInterval(intervalId);
   }, []);
 
   const getStatusColor = (status: string) => {

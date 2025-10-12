@@ -394,25 +394,15 @@ def fetch_all_incidents():
                         A.PERSONNEL AS PERSONNEL,
                         A.DESCRIPTION AS INCIDENT_DESCRIPTION,
                         A.PRIORITY AS INCIDENT_PRIORITY,
-                        A.RISK_FACTORS AS RISK_FACTORS,
-                        D.USER_NAME AS REPORTED_BY
+                        A.RISK_FACTORS AS RISK_FACTORS
                     FROM 
                         {DB_SCHEMA}.INCIDENTS A
                         LEFT JOIN 
                         {DB_SCHEMA}.SEVERITY_LEVELS B 
                         ON A.SEVERITY_LEVEL_ID = B.SEVERITY_LEVEL_ID
-                        AND 
-                        A.ACTIVE_FLAG = 'Y'
                         JOIN 
                         {DB_SCHEMA}.INCIDENT_TYPES C
                         ON A.INCIDENT_TYPE_ID = C.INCIDENT_TYPE_ID
-                        AND
-                        C.ACTIVE_FLAG = 'Y'
-                        JOIN 
-                        USERS_INFORMATION D
-                        ON A.USER_ID = D.USER_ID
-                        AND 
-                        D.ACTIVE_FLAG = 'Y'
                     ORDER BY 
                         A.CREATED_DATE DESC;
                 """
@@ -446,8 +436,7 @@ def fetch_all_incidents():
                 "personnel": row[7],
                 "description": row[8],
                 "priority": row[9],
-                "risk_factors": row[10],
-                "reported_by": row[11]
+                "risk_factors": row[10]
             }
             incidents_list.append(incident)
         #Close the cursor and connection
@@ -779,7 +768,7 @@ def fetch_incident_types():
         return Response(json.dumps(response), status=500, mimetype='application/json')
 
 UPLOAD_FOLDER = "uploads"
-CORE_API_URL = "https://opeianbuildathonaicorelayer.onrender.com/upload_request"
+CORE_API_URL = "http://localhost:8000/upload_request"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def save_base64_file(base64_string, filename):
@@ -846,6 +835,7 @@ def submit_request():
             'Submitted',
             reporter_id
         ))
+        print("Inserted incident record.")
 
         incident_id = cursor.fetchone()[0]
         conn.commit()
