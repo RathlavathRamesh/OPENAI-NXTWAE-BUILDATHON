@@ -1,0 +1,1 @@
+export const API_BASE_URL = "https://openai-nxtwae-buildathon-1.onrender.com";
