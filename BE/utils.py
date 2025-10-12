@@ -50,7 +50,7 @@ def analyze_summarize_json(incident_id : int, analyze_summarize_json : json) -> 
         #Query to update the analyze_summarize_json
         update_query = f"""
             UPDATE {DB_SCHEMA}.INCIDENTS
-            SET ANALYZE_SUMMARIZE_JSON = %s
+            SET ANALYZE_SUMMARY_JSON = %s
             WHERE INCIDENT_ID = %s;
         """
         cursor.execute(update_query, (json.dumps(analyze_summarize_json), incident_id))
@@ -114,10 +114,31 @@ def final_summary_json(incident_id : int, final_summary_json : json) -> Dict[str
         cursor = conn.cursor()
         #Query to update the final_summary_json
         update_query = f"""
-            UPDATE {DB_SCHEMA}.INCIDENTS
-            SET FINAL_SUMMARY_JSON = %s
-            WHERE INCIDENT_ID = %s;
-        """
+                            UPDATE {DB_SCHEMA}.INCIDENTS i
+                            SET
+                                FINAL_SUMMARY_JSON = %s,
+                                PRIORITY_SCORE = (to_jsonb(%s) ->> 'priority_score')::INT,
+                                RISK_FACTORS = (to_jsonb(%s) ->> 'recommendations')::JSONB,
+                                SEVERITY_LEVEL_ID = (
+                                    SELECT s.severity_level_id
+                                    FROM {DB_SCHEMA}.severity_levels s
+                                    WHERE s.severity_level_name = (to_jsonb(%s) ->> 'severity')
+                                    LIMIT 1
+                                )
+                            WHERE i.INCIDENT_ID = %s;
+                        """
+        # Convert the input JSON to a Python dictionary if it's a string
+        data = final_summary_json
+        cursor.execute(
+                        update_query,
+                        (
+                            json.dumps(data),  # 1 → FINAL_SUMMARY_JSON
+                            json.dumps(data),  # 2 → Extract priority_score
+                            json.dumps(data),  # 3 → Extract recommendations
+                            json.dumps(data),  # 4 → Extract severity for lookup
+                            incident_id        # 5 → Target record
+                        )
+                    )
         cursor.execute(update_query, (json.dumps(final_summary_json), incident_id))
         conn.commit()
         cursor.close()
@@ -133,4 +154,6 @@ def final_summary_json(incident_id : int, final_summary_json : json) -> Dict[str
             "status_code": 500,
             "message": f"Error updating Final Summary JSON for incident_id: {incident_id}. Error: {str(e)}"
         }
-        
+       
+ 
+ 
