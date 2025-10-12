@@ -1,4 +1,4 @@
-from flask import Flask, request, Response
+from flask import Flask, request, Response, jsonify
 import time 
 import json 
 import psycopg2
@@ -7,9 +7,99 @@ from google import genai
 from flask_cors import CORS
 import requests
 from flask import Flask, request, jsonify
+import os
+from werkzeug.utils import secure_filename
+import base64
+
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+
+#Route to fetch all sections
+@app.route('/api/getsections', methods=['POST'])
+def get_sections():
+    #Fetch the input payload from the request
+    input_data = request.get_json()
+    if input_data is None or "user_id" not in input_data:
+        response = {
+            "execution_status": "Failed",
+            "status_code": 400,
+            "message": "Invalid input: 'prompt' key is missing",
+            "error_code": "INVALID_INPUT",
+            "error_message": "'prompt' key is required in the request body",
+            "output_kpis": {
+                "execution_time": 0
+            }
+        }
+        return Response(json.dumps(response), status=400, mimetype='application/json')
+    start_time = time.time()
+    try:
+        #Fetch the DB connection string and schema from config
+        DB_CONNECTION_STRING = Config.DB_CONNECTION_STRING
+        DB_SCHEMA = Config.DB_SCHEMA
+        user_id = int(input_data.get("user_id"))
+        #Create the connection to the database
+        conn = psycopg2.connect(DB_CONNECTION_STRING)
+        cursor = conn.cursor()
+        #Prepare a query to fetch all sections
+        query = f"SELECT SECTION_ID, SECTION_NAME,PROMPT,PROMPT_GIVEN_AT,RESPONSE,RESPONSE_PROVIDED_AT FROM {DB_SCHEMA}.PROMPT_RESPONSES WHERE ACTIVE_FLAG = 'Y' AND USER_ID = %s;"
+        cursor.execute(query, (user_id,))
+        sections = cursor.fetchall()
+        #If no sections found, return appropriate response
+        if not sections:
+            response = {
+                "execution_status": "Failed",
+                "status_code": 404,
+                "message": "No Sections found",
+                "error_code": "NO_DATA",
+                "error_message": "The PROMPT_RESPONSES table is empty or no active sections found",
+                "output_kpis": {
+                    "execution_time": round(time.time() - start_time, 2)
+                }
+            }
+            return Response(json.dumps(response), status=404, mimetype='application/json')
+        #Prepare the sections list
+        sections_list = []
+        for row in sections:
+            section = {
+                "section_id": row[0],
+                "section_name": row[1],
+                "prompt": row[2],
+                "prompt_given_at": str(row[3]),
+                "response": row[4]["response"],
+                "response_provided_at": str(row[5])
+            }
+            sections_list.append(section)
+        #Close the cursor and connection
+        cursor.close()
+        conn.close()
+        response = {
+            "execution_status": "Success",
+            "status_code": 200,
+            "message": "Sections fetched successfully",
+            "error_code": None,
+            "error_message": None,
+            "output_kpis": {
+                "execution_time": round(time.time() - start_time, 2)
+            },
+            "body": {
+                "sections": sections_list
+            }
+        }
+        return Response(json.dumps(response), status=200, mimetype='application/json')
+    except Exception as e:
+        response = {
+            "execution_status": "Failed",
+            "status_code": 500,
+            "message": "Error fetching Sections",
+            "error_code": "CONFIG_ERROR",
+            "error_message": str(e),
+            "output_kpis": {
+                "execution_time": round(time.time() - start_time, 2)
+            }
+        }
+        return Response(json.dumps(response), status=500, mimetype='application/json')
 
 #Route to provide the response for a given prompt using OpenAI GPT-5 (For now we are using Gemini)
 @app.route('/api/generate-response', methods=['POST'])
@@ -104,6 +194,181 @@ def generate_response():
         }
         return Response(json.dumps(response), status=500, mimetype='application/json')
         
+@app.route('/api/register', methods=['POST'])
+def register_user():
+    start_time = time.time()
+    try:
+        input_data = request.get_json()
+        required_fields = ['user_name', 'email', 'password']
+
+        # Validate input
+        if not input_data or not all(field in input_data for field in required_fields):
+            response = {
+                "execution_status": "Failed",
+                "status_code": 400,
+                "message": "Invalid input: Missing required fields",
+                "error_code": "INVALID_INPUT",
+                "error_message": "Fields 'user_name', 'email', and 'password' are required",
+                "output_kpis": {"execution_time": 0}
+            }
+            return Response(json.dumps(response), status=400, mimetype='application/json')
+
+        user_name = input_data['user_name']
+        email = input_data['email']
+        password = input_data['password']
+        hashed_password = password
+
+        # Connect to DB
+        DB_CONNECTION_STRING = Config.DB_CONNECTION_STRING
+        DB_SCHEMA = Config.DB_SCHEMA
+        conn = psycopg2.connect(DB_CONNECTION_STRING)
+        cursor = conn.cursor()
+
+        # Check if email already exists
+        cursor.execute(f"SELECT USER_ID FROM {DB_SCHEMA}.USERS_INFORMATION WHERE EMAIL = %s;", (email,))
+        existing_user = cursor.fetchone()
+        if existing_user:
+            response = {
+                "execution_status": "Failed",
+                "status_code": 409,
+                "message": "User already exists",
+                "error_code": "USER_EXISTS",
+                "error_message": "Email is already registered",
+                "output_kpis": {"execution_time": round(time.time() - start_time, 2)}
+            }
+            return Response(json.dumps(response), status=409, mimetype='application/json')
+
+        # Insert new user
+        insert_query = f"""
+            INSERT INTO {DB_SCHEMA}.USERS_INFORMATION
+            (USER_NAME, EMAIL, PASSWORD, CREATED_BY, CREATED_DATE, ACTIVE_FLAG)
+            VALUES (%s, %s, %s, %s, NOW(), 'Y')
+            RETURNING USER_ID;
+        """
+        cursor.execute(insert_query, (user_name, email, hashed_password, 1))
+        user_id = cursor.fetchone()[0]
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        response = {
+            "execution_status": "Success",
+            "status_code": 201,
+            "message": "User registered successfully",
+            "error_code": None,
+            "error_message": None,
+            "output_kpis": {"execution_time": round(time.time() - start_time, 2)},
+            "body": {"user_id": user_id, "email": email}
+        }
+        return Response(json.dumps(response), status=201, mimetype='application/json')
+
+    except Exception as e:
+        response = {
+            "execution_status": "Failed",
+            "status_code": 500,
+            "message": "Error registering user",
+            "error_code": "DB_ERROR",
+            "error_message": str(e),
+            "output_kpis": {"execution_time": round(time.time() - start_time, 2)}
+        }
+        return Response(json.dumps(response), status=500, mimetype='application/json')
+
+@app.route('/api/login', methods=['POST'])
+def login_user():
+    start_time = time.time()
+    try:
+        input_data = request.get_json()
+        if not input_data or 'email' not in input_data or 'password' not in input_data:
+            response = {
+                "execution_status": "Failed",
+                "status_code": 400,
+                "message": "Invalid input: Missing email or password",
+                "error_code": "INVALID_INPUT",
+                "error_message": "'email' and 'password' are required",
+                "output_kpis": {"execution_time": 0}
+            }
+            return Response(json.dumps(response), status=400, mimetype='application/json')
+
+        email = input_data['email']
+        password = input_data['password']
+
+        DB_CONNECTION_STRING = Config.DB_CONNECTION_STRING
+        DB_SCHEMA = Config.DB_SCHEMA
+        conn = psycopg2.connect(DB_CONNECTION_STRING)
+        cursor = conn.cursor()
+
+        # Fetch user details
+        cursor.execute(
+            f"SELECT USER_ID, USER_NAME, PASSWORD, ACTIVE_FLAG FROM {DB_SCHEMA}.USERS_INFORMATION WHERE EMAIL = %s;",
+            (email,))
+        user = cursor.fetchone()
+
+        if not user:
+            response = {
+                "execution_status": "Failed",
+                "status_code": 404,
+                "message": "User not found",
+                "error_code": "USER_NOT_FOUND",
+                "error_message": "Invalid email or password",
+                "output_kpis": {"execution_time": round(time.time() - start_time, 2)}
+            }
+            return Response(json.dumps(response), status=404, mimetype='application/json')
+
+        user_id, user_name, stored_password, active_flag = user
+
+        # Check if active
+        if active_flag != 'Y':
+            response = {
+                "execution_status": "Failed",
+                "status_code": 403,
+                "message": "Account inactive",
+                "error_code": "ACCOUNT_INACTIVE",
+                "error_message": "User account is deactivated",
+                "output_kpis": {"execution_time": round(time.time() - start_time, 2)}
+            }
+            return Response(json.dumps(response), status=403, mimetype='application/json')
+
+        # Verify password
+        if not password == stored_password:
+            response = {
+                "execution_status": "Failed",
+                "status_code": 401,
+                "message": "Invalid credentials",
+                "error_code": "INVALID_CREDENTIALS",
+                "error_message": "Incorrect password",
+                "output_kpis": {"execution_time": round(time.time() - start_time, 2)}
+            }
+            return Response(json.dumps(response), status=401, mimetype='application/json')
+
+        cursor.close()
+        conn.close()
+
+        # Successful login
+        response = {
+            "execution_status": "Success",
+            "status_code": 200,
+            "message": "Login successful",
+            "error_code": None,
+            "error_message": None,
+            "output_kpis": {"execution_time": round(time.time() - start_time, 2)},
+            "body": {
+                "user_id": user_id,
+                "user_name": user_name,
+                "email": email
+            }
+        }
+        return Response(json.dumps(response), status=200, mimetype='application/json')
+
+    except Exception as e:
+        response = {
+            "execution_status": "Failed",
+            "status_code": 500,
+            "message": "Error during login",
+            "error_code": "DB_ERROR",
+            "error_message": str(e),
+            "output_kpis": {"execution_time": round(time.time() - start_time, 2)}
+        }
+        return Response(json.dumps(response), status=500, mimetype='application/json')
         
 #Route to fetch all incidents
 @app.route('/api/allincidents',methods=['GET'])
@@ -517,14 +782,6 @@ def fetch_incident_types():
         }
         return Response(json.dumps(response), status=500, mimetype='application/json')
 
-
-import os
-import base64
-import requests
-from flask import Flask, request, jsonify
-
-app = Flask(__name__)
-
 UPLOAD_FOLDER = "uploads"
 CORE_API_URL = "https://opeianbuildathonaicorelayer.onrender.com/upload_request"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -537,75 +794,89 @@ def save_base64_file(base64_string, filename):
     return file_path
 
 
-@app.route("/submit_request", methods=["POST"])
+@app.route("/api/submitrequest", methods=["POST"])
 def submit_request():
     try:
-        data = request.get_json()
+        # 🔹 Extract form fields
+        description = request.form.get("description")
+        location = request.form.get("location")
+        reporter_id = int(request.form.get("reporterId"))
+        reporter_contact = request.form.get("reporterContactNumber")
+        incident_type = request.form.get("emergencyType")
+        incident_type_id = request.form.get("emergencyTypeId")
+        severity = request.form.get("estimatedSeverity")
 
-        description = data.get("description")
-        location = data.get("location")
-        reporter_name = data.get("reporterName")
-        reporter_contact = data.get("reporterContactNumber")
-        emergency_type = data.get("emergencyType")
-        severity = data.get("estimatedSeverity")
-        images = data.get("images", [])
-        audio = data.get("audio", [])
-        videos = data.get("video", [])
+        # 🔹 Extract uploaded files
+        images = request.files.getlist("images")
+        videos = request.files.getlist("videos")
+        audios = request.files.getlist("audio")
 
         # Split lat, lon
         lat, lon = location.split(",") if location else (None, None)
+        uploaded_files = images + videos + audios
 
-        # Store uploaded files locally
-        saved_files = []
-
-        # Handle images
-        for i, img in enumerate(images):
-            if img.get("data"):
-                filename = f"image_{i}.jpg"
-                path = save_base64_file(img["data"], filename)
-                saved_files.append(path)
-
-        # Handle videos
-        for i, vid in enumerate(videos):
-            if vid.get("data"):
-                filename = f"video_{i}.mp4"
-                path = save_base64_file(vid["data"], filename)
-                saved_files.append(path)
-
-        # Handle audio
-        for i, aud in enumerate(audio):
-            if aud.get("data"):
-                filename = f"audio_{i}.mp3"
-                path = save_base64_file(aud["data"], filename)
-                saved_files.append(path)
-
-        # Prepare files for Core API
+      # Convert to proper form-data tuples
         files = []
-        for path in saved_files:
-            files.append(("files", (os.path.basename(path), open(path, "rb"), "application/octet-stream")))
+        for f in uploaded_files:
+            if f and f.filename:
+                files.append(
+                    ("files", (f.filename, f.stream, f.mimetype or "application/octet-stream"))
+                )
 
+        # 🔹 Database connection
+        DB_CONNECTION_STRING = Config.DB_CONNECTION_STRING
+        DB_SCHEMA = Config.DB_SCHEMA
+        conn = psycopg2.connect(DB_CONNECTION_STRING)
+        cursor = conn.cursor()
+
+        breakpoint()
+        # Format location as JSON
+        location_json = {
+            "place": "NIAT Hyderabad",
+            "latitude": lat.strip() if lat else "",
+            "longitude": lon.strip() if lon else ""
+        }
+
+        # 🔹 Insert into INCIDENTS table
+        insert_query = f"""
+            INSERT INTO {DB_SCHEMA}.INCIDENTS
+            (INCIDENT_TYPE_ID, USER_ID, LOCATION, DESCRIPTION, INCIDENT_STATUS, CREATED_BY)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING INCIDENT_ID;
+        """
+        cursor.execute(insert_query, (
+            incident_type_id,
+            reporter_id,
+            json.dumps(location_json),
+            description,
+            'Submitted',
+            reporter_id
+        ))
+
+        incident_id = cursor.fetchone()[0]
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        # 🔹 Prepare payload for Core API
         payload = {
             "channel": "app",
             "text": description,
             "lat": lat.strip() if lat else "",
             "lon": lon.strip() if lon else "",
-            "incident_id": "2"
+            "incident_id": incident_id
         }
 
-        # Send to Core API
+        # 🔹 Send to Core API
         response = requests.post(
             CORE_API_URL,
             data=payload,
             files=files,
             headers={"Accept": "application/json"}
         )
-
-        # Cleanup local files (optional)
-        for f in saved_files:
-            os.remove(f)
-
         return jsonify({
             "status": "success",
+            "incident_id": incident_id,
             "core_api_response": response.json()
         }), response.status_code
 
