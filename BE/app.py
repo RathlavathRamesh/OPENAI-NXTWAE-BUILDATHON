@@ -8,6 +8,7 @@ from flask_cors import CORS
 import requests
 from flask import Flask, request, jsonify
 import os
+from werkzeug.utils import secure_filename
 import base64
 
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -796,76 +797,68 @@ def save_base64_file(base64_string, filename):
 @app.route("/api/submitrequest", methods=["POST"])
 def submit_request():
     try:
-        data = request.get_json()
+        # 🔹 Extract form fields
+        description = request.form.get("description")
+        location = request.form.get("location")
+        reporter_id = int(request.form.get("reporterId"))
+        reporter_contact = request.form.get("reporterContactNumber")
+        incident_type = request.form.get("emergencyType")
+        incident_type_id = request.form.get("emergencyTypeId")
+        severity = request.form.get("estimatedSeverity")
 
-        description = data.get("description")
-        location = data.get("location")
-        reporter_id = int(data.get("reporterId"))
-        reporter_contact = data.get("reporterContactNumber")
-        incident_type = data.get("emergencyType")
-        incident_type_id = data.get("emergencyTypeId")
-        severity = data.get("estimatedSeverity")
-        images = data.get("images", [])
-        audio = data.get("audio", [])
-        videos = data.get("video", [])
+        # 🔹 Extract uploaded files
+        images = request.files.getlist("images")
+        videos = request.files.getlist("videos")
+        audios = request.files.getlist("audio")
 
         # Split lat, lon
         lat, lon = location.split(",") if location else (None, None)
+        uploaded_files = images + videos + audios
 
-        # Store uploaded files locally
-        saved_files = []
-
-        # Handle images
-        for i, img in enumerate(images):
-            if img.get("data"):
-                filename = f"image_{i}.jpg"
-                path = save_base64_file(img["data"], filename)
-                saved_files.append(path)
-
-        # Handle videos
-        for i, vid in enumerate(videos):
-            if vid.get("data"):
-                filename = f"video_{i}.mp4"
-                path = save_base64_file(vid["data"], filename)
-                saved_files.append(path)
-
-        # Handle audio
-        for i, aud in enumerate(audio):
-            if aud.get("data"):
-                filename = f"audio_{i}.mp3"
-                path = save_base64_file(aud["data"], filename)
-                saved_files.append(path)
-
-        # Prepare files for Core API
+      # Convert to proper form-data tuples
         files = []
-        for path in saved_files:
-            files.append(("files", (os.path.basename(path), open(path, "rb"), "application/octet-stream")))
+        for f in uploaded_files:
+            if f and f.filename:
+                files.append(
+                    ("files", (f.filename, f.stream, f.mimetype or "application/octet-stream"))
+                )
 
-        #Get the DB connection string and schema from config
+        # 🔹 Database connection
         DB_CONNECTION_STRING = Config.DB_CONNECTION_STRING
         DB_SCHEMA = Config.DB_SCHEMA
-        #Establishing the connection
         conn = psycopg2.connect(DB_CONNECTION_STRING)
         cursor = conn.cursor()
-        #Format the location as JSON
+
+        breakpoint()
+        # Format location as JSON
         location_json = {
             "place": "NIAT Hyderabad",
             "latitude": lat.strip() if lat else "",
             "longitude": lon.strip() if lon else ""
         }
-        #Insert the incident details into the INCIDENTS table
+
+        # 🔹 Insert into INCIDENTS table
         insert_query = f"""
-                            INSERT INTO {DB_SCHEMA}.INCIDENTS
-                            (INCIDENT_TYPE_ID, USER_ID, LOCATION, DESCRIPTION, INCIDENT_STATUS, CREATED_BY)
-                            VALUES (%s, %s, %s, %s, %s, %s)
-                            RETURNING INCIDENT_ID;
-                        """
-        cursor.execute(insert_query, (incident_type_id, reporter_id, json.dumps(location), description, 'Submitted', reporter_id))
+            INSERT INTO {DB_SCHEMA}.INCIDENTS
+            (INCIDENT_TYPE_ID, USER_ID, LOCATION, DESCRIPTION, INCIDENT_STATUS, CREATED_BY)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING INCIDENT_ID;
+        """
+        cursor.execute(insert_query, (
+            incident_type_id,
+            reporter_id,
+            json.dumps(location_json),
+            description,
+            'Submitted',
+            reporter_id
+        ))
+
         incident_id = cursor.fetchone()[0]
-        print(incident_id)
         conn.commit()
         cursor.close()
         conn.close()
+
+        # 🔹 Prepare payload for Core API
         payload = {
             "channel": "app",
             "text": description,
@@ -873,20 +866,17 @@ def submit_request():
             "lon": lon.strip() if lon else "",
             "incident_id": incident_id
         }
-        # Send to Core API
+
+        # 🔹 Send to Core API
         response = requests.post(
             CORE_API_URL,
             data=payload,
             files=files,
             headers={"Accept": "application/json"}
         )
-
-        # Cleanup local files (optional)
-        for f in saved_files:
-            os.remove(f)
-
         return jsonify({
             "status": "success",
+            "incident_id": incident_id,
             "core_api_response": response.json()
         }), response.status_code
 
