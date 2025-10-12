@@ -197,7 +197,7 @@ export default function Report() {
       });
 
       const response = await fetch(
-        `${API_BASE_URL}/api/submitrequest`,
+        `http://127.0.0.1:8002/api/submitrequest`,
         {
           method: "POST",
           body: form,
@@ -208,7 +208,7 @@ export default function Report() {
         title: "Incident Submitted",
         description: "Your report has been sent successfully.",
       });
-      navigate("/home");
+      navigate("/incidents");
     } catch (error) {
       toast({
         variant: "destructive",
