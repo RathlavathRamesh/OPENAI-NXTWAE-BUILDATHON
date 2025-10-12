@@ -82,13 +82,17 @@ async def upload_request(
     print(f"[upload_request] received files count = {len(files or [])}")
 
     uploads: List[Dict[str, Any]] = []
+
+    if not files:
+        print("[upload_request] No files received")
+    else:
+        print(f"[upload_request] received files count = {len(files)}")
+
     for f in files or []:
         try:
-            # Show what client sent
             print(f"[upload_request] incoming part: {f.filename} -> {f.content_type}")
             content = await f.read()
 
-            # Hard override MIME by filename, ignoring incorrect client headers
             mime = force_mime_by_name(f.filename or "", f.content_type)
             if (f.content_type or "").startswith("image/") and mime.startswith("video/"):
                 print(f"[upload_request] correcting client MIME: {f.filename} {f.content_type} -> {mime}")
@@ -103,6 +107,7 @@ async def upload_request(
 
         except Exception as e:
             errors.append(f"file {getattr(f, 'filename', 'unknown')}: {e}")
+
 
     # Proceed through agents; uploads may be empty (text-only)
     layer1 = await run_preprocess_agent(channel=channel, text=text, latlon=latlon, uploads=uploads)

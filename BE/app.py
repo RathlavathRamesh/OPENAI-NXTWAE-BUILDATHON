@@ -5,6 +5,8 @@ import psycopg2
 from environment import Config
 from google import genai
 from flask_cors import CORS
+import requests
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
@@ -514,6 +516,102 @@ def fetch_incident_types():
             }
         }
         return Response(json.dumps(response), status=500, mimetype='application/json')
-        
+
+
+import os
+import base64
+import requests
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+UPLOAD_FOLDER = "uploads"
+CORE_API_URL = "http://localhost:8000/upload_request"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+def save_base64_file(base64_string, filename):
+    """Save a base64-encoded file to disk and return the path."""
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
+    with open(file_path, "wb") as f:
+        f.write(base64.b64decode(base64_string))
+    return file_path
+
+
+@app.route("/submit_request", methods=["POST"])
+def submit_request():
+    try:
+        data = request.get_json()
+
+        description = data.get("description")
+        location = data.get("location")
+        reporter_name = data.get("reporterName")
+        reporter_contact = data.get("reporterContactNumber")
+        emergency_type = data.get("emergencyType")
+        severity = data.get("estimatedSeverity")
+        images = data.get("images", [])
+        audio = data.get("audio", [])
+        videos = data.get("video", [])
+
+        # Split lat, lon
+        lat, lon = location.split(",") if location else (None, None)
+
+        # Store uploaded files locally
+        saved_files = []
+
+        # Handle images
+        for i, img in enumerate(images):
+            if img.get("data"):
+                filename = f"image_{i}.jpg"
+                path = save_base64_file(img["data"], filename)
+                saved_files.append(path)
+
+        # Handle videos
+        for i, vid in enumerate(videos):
+            if vid.get("data"):
+                filename = f"video_{i}.mp4"
+                path = save_base64_file(vid["data"], filename)
+                saved_files.append(path)
+
+        # Handle audio
+        for i, aud in enumerate(audio):
+            if aud.get("data"):
+                filename = f"audio_{i}.mp3"
+                path = save_base64_file(aud["data"], filename)
+                saved_files.append(path)
+
+        # Prepare files for Core API
+        files = []
+        for path in saved_files:
+            files.append(("files", (os.path.basename(path), open(path, "rb"), "application/octet-stream")))
+
+        payload = {
+            "channel": "app",
+            "text": description,
+            "lat": lat.strip() if lat else "",
+            "lon": lon.strip() if lon else "",
+            "incident_id": "2"
+        }
+
+        # Send to Core API
+        response = requests.post(
+            CORE_API_URL,
+            data=payload,
+            files=files,
+            headers={"Accept": "application/json"}
+        )
+
+        # Cleanup local files (optional)
+        for f in saved_files:
+            os.remove(f)
+
+        return jsonify({
+            "status": "success",
+            "core_api_response": response.json()
+        }), response.status_code
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+       
 if __name__ == '__main__':
     app.run(host = '0.0.0.0', port = 8002, debug = True)
