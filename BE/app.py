@@ -130,7 +130,7 @@ def register_user():
         user_name = input_data['user_name']
         email = input_data['email']
         password = input_data['password']
-        hashed_password = generate_password_hash(password)
+        hashed_password = password
 
         # Connect to DB
         DB_CONNECTION_STRING = Config.DB_CONNECTION_STRING
@@ -243,7 +243,7 @@ def login_user():
             return Response(json.dumps(response), status=403, mimetype='application/json')
 
         # Verify password
-        if not check_password_hash(stored_password, password):
+        if not password == stored_password:
             response = {
                 "execution_status": "Failed",
                 "status_code": 401,
