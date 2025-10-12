@@ -152,5 +152,3 @@ def final_summary_json(incident_id : int, final_summary_json : json) -> Dict[str
         }
        
  
-response =  final_summary_json(17,{"priority_score": 0, "authentic": False, "severity": "Unknown", "summary": "", "recommendations": ["Incident not verified - investigate further", "Consider false alarm protocols", "Data inconsistencies detected - manual review recommended"]})
-print(response)
