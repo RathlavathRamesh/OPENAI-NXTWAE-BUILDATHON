@@ -403,8 +403,6 @@ def fetch_all_incidents():
                         ON A.SEVERITY_LEVEL_ID = B.SEVERITY_LEVEL_ID
                         AND 
                         A.ACTIVE_FLAG = 'Y'
-                        AND
-                        B.ACTIVE_FLAG = 'Y'
                         JOIN 
                         {DB_SCHEMA}.INCIDENT_TYPES C
                         ON A.INCIDENT_TYPE_ID = C.INCIDENT_TYPE_ID
@@ -509,8 +507,6 @@ def fetch_recent_incidents():
                         ON A.SEVERITY_LEVEL_ID = B.SEVERITY_LEVEL_ID
                         AND 
                         A.ACTIVE_FLAG = 'Y'
-                        AND
-                        B.ACTIVE_FLAG = 'Y'
                         JOIN 
                         {DB_SCHEMA}.INCIDENT_TYPES C
                         ON A.INCIDENT_TYPE_ID = C.INCIDENT_TYPE_ID
