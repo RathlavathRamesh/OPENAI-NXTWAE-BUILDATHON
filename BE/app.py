@@ -15,6 +15,91 @@ from werkzeug.security import generate_password_hash, check_password_hash
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
+#Route to fetch all sections
+@app.route('/api/getsections', methods=['POST'])
+def get_sections():
+    #Fetch the input payload from the request
+    input_data = request.get_json()
+    if input_data is None or "user_id" not in input_data:
+        response = {
+            "execution_status": "Failed",
+            "status_code": 400,
+            "message": "Invalid input: 'prompt' key is missing",
+            "error_code": "INVALID_INPUT",
+            "error_message": "'prompt' key is required in the request body",
+            "output_kpis": {
+                "execution_time": 0
+            }
+        }
+        return Response(json.dumps(response), status=400, mimetype='application/json')
+    start_time = time.time()
+    try:
+        #Fetch the DB connection string and schema from config
+        DB_CONNECTION_STRING = Config.DB_CONNECTION_STRING
+        DB_SCHEMA = Config.DB_SCHEMA
+        user_id = int(input_data.get("user_id"))
+        #Create the connection to the database
+        conn = psycopg2.connect(DB_CONNECTION_STRING)
+        cursor = conn.cursor()
+        #Prepare a query to fetch all sections
+        query = f"SELECT SECTION_ID, SECTION_NAME,PROMPT,PROMPT_GIVEN_AT,RESPONSE,RESPONSE_PROVIDED_AT FROM {DB_SCHEMA}.PROMPT_RESPONSES WHERE ACTIVE_FLAG = 'Y' AND USER_ID = %s;"
+        cursor.execute(query, (user_id,))
+        sections = cursor.fetchall()
+        #If no sections found, return appropriate response
+        if not sections:
+            response = {
+                "execution_status": "Failed",
+                "status_code": 404,
+                "message": "No Sections found",
+                "error_code": "NO_DATA",
+                "error_message": "The PROMPT_RESPONSES table is empty or no active sections found",
+                "output_kpis": {
+                    "execution_time": round(time.time() - start_time, 2)
+                }
+            }
+            return Response(json.dumps(response), status=404, mimetype='application/json')
+        #Prepare the sections list
+        sections_list = []
+        for row in sections:
+            section = {
+                "section_id": row[0],
+                "section_name": row[1],
+                "prompt": row[2],
+                "prompt_given_at": str(row[3]),
+                "response": row[4]["response"],
+                "response_provided_at": str(row[5])
+            }
+            sections_list.append(section)
+        #Close the cursor and connection
+        cursor.close()
+        conn.close()
+        response = {
+            "execution_status": "Success",
+            "status_code": 200,
+            "message": "Sections fetched successfully",
+            "error_code": None,
+            "error_message": None,
+            "output_kpis": {
+                "execution_time": round(time.time() - start_time, 2)
+            },
+            "body": {
+                "sections": sections_list
+            }
+        }
+        return Response(json.dumps(response), status=200, mimetype='application/json')
+    except Exception as e:
+        response = {
+            "execution_status": "Failed",
+            "status_code": 500,
+            "message": "Error fetching Sections",
+            "error_code": "CONFIG_ERROR",
+            "error_message": str(e),
+            "output_kpis": {
+                "execution_time": round(time.time() - start_time, 2)
+            }
+        }
+        return Response(json.dumps(response), status=500, mimetype='application/json')
+
 #Route to provide the response for a given prompt using OpenAI GPT-5 (For now we are using Gemini)
 @app.route('/api/generate-response', methods=['POST'])
 def generate_response():
@@ -708,16 +793,17 @@ def save_base64_file(base64_string, filename):
     return file_path
 
 
-@app.route("/submit_request", methods=["POST"])
+@app.route("/api/submitrequest", methods=["POST"])
 def submit_request():
     try:
         data = request.get_json()
 
         description = data.get("description")
         location = data.get("location")
-        reporter_name = data.get("reporterName")
+        reporter_id = int(data.get("reporterId"))
         reporter_contact = data.get("reporterContactNumber")
-        emergency_type = data.get("emergencyType")
+        incident_type = data.get("emergencyType")
+        incident_type_id = data.get("emergencyTypeId")
         severity = data.get("estimatedSeverity")
         images = data.get("images", [])
         audio = data.get("audio", [])
@@ -755,14 +841,38 @@ def submit_request():
         for path in saved_files:
             files.append(("files", (os.path.basename(path), open(path, "rb"), "application/octet-stream")))
 
+        #Get the DB connection string and schema from config
+        DB_CONNECTION_STRING = Config.DB_CONNECTION_STRING
+        DB_SCHEMA = Config.DB_SCHEMA
+        #Establishing the connection
+        conn = psycopg2.connect(DB_CONNECTION_STRING)
+        cursor = conn.cursor()
+        #Format the location as JSON
+        location_json = {
+            "place": "NIAT Hyderabad",
+            "latitude": lat.strip() if lat else "",
+            "longitude": lon.strip() if lon else ""
+        }
+        #Insert the incident details into the INCIDENTS table
+        insert_query = f"""
+                            INSERT INTO {DB_SCHEMA}.INCIDENTS
+                            (INCIDENT_TYPE_ID, USER_ID, LOCATION, DESCRIPTION, INCIDENT_STATUS, CREATED_BY)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                            RETURNING INCIDENT_ID;
+                        """
+        cursor.execute(insert_query, (incident_type_id, reporter_id, json.dumps(location), description, 'Submitted', reporter_id))
+        incident_id = cursor.fetchone()[0]
+        print(incident_id)
+        conn.commit()
+        cursor.close()
+        conn.close()
         payload = {
             "channel": "app",
             "text": description,
             "lat": lat.strip() if lat else "",
             "lon": lon.strip() if lon else "",
-            "incident_id": "2"
+            "incident_id": incident_id
         }
-
         # Send to Core API
         response = requests.post(
             CORE_API_URL,
