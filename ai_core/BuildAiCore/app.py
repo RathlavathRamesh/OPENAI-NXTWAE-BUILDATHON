@@ -42,6 +42,40 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
+
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+def send_incident_email(to_email, subject, body):
+    """
+    Send an incident alert email via Gmail.
+    
+    Args:
+        to_email (str): Recipient Gmail address
+        subject (str): Email subject line
+        body (str): Email body text
+    """
+    sender_email = "rameshrguktbasar@gmail.com"          # Replace with your Gmail
+    app_password = "wjyu sary pqaw wraw "   # Replace with your App Password
+
+    # Create the email message
+    msg = MIMEMultipart()
+    msg["From"] = sender_email
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
+
+    # Connect to Gmail SMTP server and send email
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(sender_email, app_password)
+            server.send_message(msg)
+        print(f"✅ Email sent successfully to {to_email}")
+    except Exception as e:
+        print(f"❌ Failed to send email: {e}")
+
+
 # ---------- MIME correction helpers ----------
 def sniff_mime_from_name(name: str) -> str:
     n = (name or "").lower()
@@ -133,6 +167,13 @@ async def upload_request(
         }
     final_result=final_summary_json(incident_id, final_json)
     print(f"final_result: {final_result}")
+    send_incident_email(
+        to_email="naseerbabashaiksk@gmail.com",
+        subject="🚨 Incident Alert: Flood Detected",
+        body= final_result
+        )
+    print("Email sent successfully")
+
     return CompleteResponse(
         request_id=request_id,
         timestamp=datetime.utcnow().isoformat() + "Z",
@@ -144,6 +185,8 @@ async def upload_request(
         final_results=final_json,
         errors=errors,
     )
+
+
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
