@@ -526,7 +526,7 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 UPLOAD_FOLDER = "uploads"
-CORE_API_URL = "http://localhost:8000/upload_request"
+CORE_API_URL = "https://opeianbuildathonaicorelayer.onrender.com/upload_request"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def save_base64_file(base64_string, filename):
