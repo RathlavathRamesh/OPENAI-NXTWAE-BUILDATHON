@@ -1,4 +1,4 @@
-from flask import Flask, request, Response
+from flask import Flask, request, Response, jsonify
 import time 
 import json 
 import psycopg2
@@ -7,6 +7,9 @@ from google import genai
 from flask_cors import CORS
 import requests
 from flask import Flask, request, jsonify
+import os
+import base64
+
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
@@ -517,16 +520,8 @@ def fetch_incident_types():
         }
         return Response(json.dumps(response), status=500, mimetype='application/json')
 
-
-import os
-import base64
-import requests
-from flask import Flask, request, jsonify
-
-app = Flask(__name__)
-
 UPLOAD_FOLDER = "uploads"
-CORE_API_URL = "http://localhost:8000/upload_request"
+CORE_API_URL = "https://opeianbuildathonaicorelayer.onrender.com/upload_request"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def save_base64_file(base64_string, filename):
